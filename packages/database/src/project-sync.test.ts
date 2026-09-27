@@ -23,6 +23,54 @@ function repository() {
   return { repo, rows };
 }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+test("periodic refresh retains loaded projects without returning to the initial loading state", async () => {
+  const { repo, rows } = repository();
+  const document = { id: "one", title: "initial" };
+  rows.set(document.id, { document, version: 1 });
+  const events: { projects: Doc[]; status: string; progress?: number }[] = [];
+  const sync = new ProjectSync(
+    repo,
+    [],
+    () => {},
+    (projects, status, _error, progress) =>
+      events.push({ projects, status, progress }),
+  );
+  await sync.refresh();
+  assert.equal(events[0]?.status, "loading");
+  events.length = 0;
+  let release!: () => void;
+  const list = repo.list;
+  repo.list = async () => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return list();
+  };
+  rows.set(document.id, {
+    document: { ...document, title: "updated remotely" },
+    version: 2,
+  });
+  const refreshing = sync.refresh();
+  assert.deepEqual(events, [
+    { projects: [document], status: "refreshing", progress: 0 },
+  ]);
+  release();
+  await refreshing;
+  assert.equal(events.at(-1)?.projects[0]?.title, "updated remotely");
+  assert.equal(events.at(-1)?.status, "synced");
+  assert.ok(events.every((event) => event.status !== "loading"));
+  repo.list = async () => {
+    throw new Error("offline");
+  };
+  events.length = 0;
+  await sync.refresh();
+  assert.deepEqual(
+    events.map((event) => event.status),
+    ["refreshing", "error"],
+  );
+  assert.equal(events.at(-1)?.projects[0]?.title, "updated remotely");
+});
+
 test("refresh reports completed records and clears progress on a failed save", async () => {
   const { repo } = repository();
   const events: { status: string; progress?: number }[] = [];

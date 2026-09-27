@@ -36,7 +36,10 @@ export function CloudAccount() {
       : "";
   }
   const busy =
-    pending !== null || cloud.status === "loading" || cloud.status === "saving";
+    pending !== null ||
+    cloud.status === "loading" ||
+    cloud.status === "refreshing" ||
+    cloud.status === "saving";
   return (
     <details
       className="my-4 rounded-lg border bg-white p-4"

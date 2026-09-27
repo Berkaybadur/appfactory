@@ -67,6 +67,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 loading: "Bulut yükleniyor…",
                 "signed-out": "Yerel · Giriş yapılmadı",
                 synced: "Supabase · Kaydedildi",
+                refreshing: "Bulut güncellemeleri kontrol ediliyor…",
                 saving: "Buluta kaydediliyor…",
                 error: "Bulut eşitleme hatası",
               }[cloud.status]

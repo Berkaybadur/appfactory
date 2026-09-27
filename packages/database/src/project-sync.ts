@@ -11,13 +11,14 @@ export class ProjectSync<T extends { id: string }> {
   private pending = new Map<string, PendingProject<T>>();
   private running = false;
   private stopped = false;
+  private loaded = false;
   constructor(
     private repository: ProjectRepository<T>,
     pending: PendingProject<T>[],
     private persist: (pending: PendingProject<T>[]) => void,
     private changed: (
       projects: T[],
-      status: "synced" | "saving" | "loading" | "error",
+      status: "synced" | "saving" | "loading" | "refreshing" | "error",
       error?: string,
       progress?: number,
     ) => void,
@@ -28,7 +29,7 @@ export class ProjectSync<T extends { id: string }> {
     this.stopped = true;
   }
   private notify(
-    status: "synced" | "saving" | "loading" | "error",
+    status: "synced" | "saving" | "loading" | "refreshing" | "error",
     error?: string,
     progress?: number,
   ) {
@@ -42,11 +43,13 @@ export class ProjectSync<T extends { id: string }> {
   async refresh() {
     if (this.running || this.stopped) return;
     this.running = true;
-    this.notify("loading", undefined, 0);
+    // Only the first load should replace the UI with its loading screen.
+    this.notify(this.loaded ? "refreshing" : "loading", undefined, 0);
     try {
       const rows = await this.repository.list();
       if (this.stopped) return;
       this.rows = new Map(rows.map((row) => [row.document.id, row]));
+      this.loaded = true;
       this.notify(
         this.pending.size ? "saving" : "synced",
         undefined,

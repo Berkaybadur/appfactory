@@ -71,7 +71,14 @@ type CloudState = {
   configured: boolean;
   userId: string | null;
   email: string | null;
-  status: "local" | "loading" | "signed-out" | "synced" | "saving" | "error";
+  status:
+    | "local"
+    | "loading"
+    | "refreshing"
+    | "signed-out"
+    | "synced"
+    | "saving"
+    | "error";
   error: string | null;
   action?: "import" | "refresh" | "load";
   progress?: number;
@@ -109,6 +116,7 @@ function setCloud(update: Partial<CloudState>) {
   if (
     update.status &&
     update.status !== "loading" &&
+    update.status !== "refreshing" &&
     update.status !== "saving"
   ) {
     cloud = { ...cloud, action: undefined, progress: undefined };
@@ -187,7 +195,12 @@ async function activateCloud(user: { id: string; email?: string } | null) {
         localStorage.setItem(outboxKey(ownerId), JSON.stringify(items)),
       (projects, status, error, progress) => {
         if (cloud.userId !== ownerId) return;
-        if (status !== "error" && status !== "loading") cloudLoaded = true;
+        if (
+          status !== "error" &&
+          status !== "loading" &&
+          status !== "refreshing"
+        )
+          cloudLoaded = true;
         snapshot = { projects, ready: true, error: null };
         setCloud({ status, error: error ?? null, progress });
       },
