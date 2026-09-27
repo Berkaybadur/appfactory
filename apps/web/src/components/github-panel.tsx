@@ -66,16 +66,16 @@ export function GithubPanel({ project }: { project: Project }) {
     }
   }
   return (
-    <Card className="shadow-none">
-      <CardHeader>
-        <CardTitle>GitHub · Bilgisayarlar arası devam</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          Üretim tamamlandığında veya durduğunda kod ve görev kaydı private
-          depoya otomatik gönderilir. Başka bilgisayarda bir sürümü alarak devam
-          edebilirsiniz. Yerel değişikliklerin üzerine yazılmaz.
-        </p>
+    <details className="my-4 rounded-lg border bg-white p-6" open>
+      <summary>
+          <span className="leading-none font-semibold cursor-pointer">GitHub · Bilgisayarlar arası devam</span>
+          <p className="text-sm text-muted-foreground">
+            Üretim tamamlandığında veya durduğunda kod ve görev kaydı private
+            depoya otomatik gönderilir. Başka bilgisayarda bir sürümü alarak devam
+            edebilirsiniz. Yerel değişikliklerin üzerine yazılmaz.
+          </p>
+      </summary>
+      <div className="mt-4 space-y-3 text-sm">
         {!state.enabled && (
           <p className="text-sm">
             Worker için GITHUB_TOKEN gerekli. Üç bilgisayarda aynı GITHUB_OWNER
@@ -136,7 +136,7 @@ export function GithubPanel({ project }: { project: Project }) {
           İndirme AI çağrısı yapmaz. Bağımlılıklar yeniden kurulur. Bağlantı
           anahtarları ve cihaz onayları aktarılmaz.
         </p>
-      </CardContent>
-    </Card>
+      </div>
+    </details>
   );
 }

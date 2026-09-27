@@ -141,17 +141,17 @@ export function BuilderPanel({
         sourceJobId={job?.status === "ready" && !stale ? job.id : null}
       />
       {section === "development" && (
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle>Plan ve tasarımdan çalışan uygulamaya</CardTitle>
-            <CardDescription>
+        <details className="my-4 rounded-lg border bg-white p-6" open>
+          <summary>
+              <span className="leading-none font-semibold cursor-pointer">Plan ve tasarımdan çalışan uygulamaya</span>
+          </summary>
+          <div className="mt-4 space-y-3 text-sm">
+            <p className="text-sm text-muted-foreground">
               GPT-5 mini ile önce veri modeli, iş kuralları, kayıt ve servis
               işlemleri üretilir. Ekranlar bu ortak işlevlere bağlanır. İş
               kuralı örnekleri, TypeScript ve ESLint sonuçları aşağıda
               gösterilir.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+            </p>
             <p className="text-sm text-muted-foreground">
               Ortak işlevler ve her ekran için görev başına en fazla $0.24; her
               denemede $0.08 bütçe ayrılır. İlk başarısızlıktan sonra en fazla
@@ -262,22 +262,22 @@ export function BuilderPanel({
                   .toFixed(6)}
               </p>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </details>
       )}
       {job?.implementation && (
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-base">
-              Üretilen uygulama işlevleri
-            </CardTitle>
-            <CardDescription>{job.implementation.summary}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <details className="my-4 rounded-lg border bg-white p-6">
+          <summary>
+            <span className="leading-none font-semibold cursor-pointer">Üretilen uygulama işlevleri</span>
+            <p className="text-sm text-muted-foreground mb-3">
+              {job.implementation.summary}
+            </p>
             <p className="text-sm text-muted-foreground">
               {job.implementation.checks.length} iş kuralı örneği doğrulandı. Bu
               kontroller cihaz ve canlı sunucu testinin yerine geçmez.
             </p>
+          </summary>
+          <div className="mt-4 space-y-3 text-sm">
             <ul className="space-y-3">
               {job.implementation.coverage.map((item, index) => (
                 <li key={index} className="rounded-md border p-3 text-sm">
@@ -323,8 +323,8 @@ export function BuilderPanel({
                 ))}
               </ul>
             </details>
-          </CardContent>
-        </Card>
+          </div>
+        </details>
       )}
       {section === "tests" && (
         <Card className="p-5 shadow-none">

@@ -11,13 +11,6 @@ import {
 import { OperationProgress, builderProgress } from "./operation-progress";
 import { PreviewPanel } from "./preview-panel";
 import { Button } from "./ui/button";
-import {
-  Card,
-  CardHeader,
-  CardContent,
-  CardTitle,
-  CardDescription,
-} from "./ui/card";
 import { useProjects } from "./project-provider";
 export function RevisionPanel({
   project,
@@ -148,24 +141,24 @@ export function RevisionPanel({
           sourceJobId={active ? null : selectedId}
         />
       )}
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle>
-            {section === "development"
-              ? "AI ile değişiklik iste"
-              : section === "tests"
-                ? "Revizyon kontrol sonuçları"
-                : "Önizlenecek sürüm"}
-          </CardTitle>
-          <CardDescription>
-            {section === "development"
-              ? "Bir ekranı tarif ederek düzenletin. Çalışan sürüm korunur; yeni çıktı ayrı hazırlanır."
-              : section === "tests"
-                ? "Revizyonların gerçek kod kontrol günlüklerini inceleyin."
-                : "Çalışan bir sürüm seçin; QR önizleme ve APK işlemleri bu sürüme bağlanır."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <details className="my-4 rounded-lg border bg-white p-6">
+        <summary>
+            <span className="leading-none font-semibold cursor-pointer">
+              {section === "development"
+                ? "AI ile değişiklik iste"
+                : section === "tests"
+                  ? "Revizyon kontrol sonuçları"
+                  : "Önizlenecek sürüm"}
+            </span>
+            <p className="text-sm text-muted-foreground">
+              {section === "development"
+                ? "Bir ekranı tarif ederek düzenletin. Çalışan sürüm korunur; yeni çıktı ayrı hazırlanır."
+                : section === "tests"
+                  ? "Revizyonların gerçek kod kontrol günlüklerini inceleyin."
+                  : "Çalışan bir sürüm seçin; QR önizleme ve APK işlemleri bu sürüme bağlanır."}
+            </p>
+        </summary>
+        <div className="mt-4 space-y-3 text-sm">
           {section !== "tests" && (
             <label className="block space-y-1 text-sm">
               <span>Çalışan sürüm</span>
@@ -321,8 +314,8 @@ export function RevisionPanel({
               )}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </details>
     </div>
   );
 }
