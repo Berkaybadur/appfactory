@@ -4,7 +4,7 @@ import { GithubPanel } from "./github-panel";
 import Link from "next/link";
 import { OperationProgress, builderProgress } from "./operation-progress";
 import { RevisionPanel } from "./revision-panel";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   builderJobSchema,
   getSpecification,
@@ -28,6 +28,62 @@ const labels = {
   ready: "Kontroller geçti",
   failed: "Durduruldu",
 };
+
+function CoverageItem({
+  item,
+}: {
+  item: NonNullable<BuilderJob["implementation"]>["coverage"][number];
+}) {
+  return (
+    <li className="rounded-md border p-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-medium">{item.requirement}</span>
+        <Badge variant="outline">
+          {
+            {
+              implemented: "Kodlandı",
+              needs_setup: "Kurulum gerekli",
+              unsupported: "Desteklenmiyor",
+            }[item.status]
+          }
+        </Badge>
+      </div>
+      <p className="mt-2 text-muted-foreground">{item.detail}</p>
+    </li>
+  );
+}
+
+function TaskCard({
+  collapsible,
+  running,
+  header,
+  children,
+}: {
+  collapsible: boolean;
+  running: boolean;
+  header: ReactNode;
+  children: ReactNode;
+}) {
+  if (!collapsible) {
+    return (
+      <Card className="shadow-none">
+        {header}
+        {children}
+      </Card>
+    );
+  }
+  return (
+    <details
+      open={running}
+      className="rounded-xl border bg-card py-6 text-card-foreground"
+    >
+      <summary className="mx-6 cursor-pointer [&>[data-slot=card-header]]:inline-grid [&>[data-slot=card-header]]:w-[calc(100%-1.5rem)] [&>[data-slot=card-header]]:px-0 [&>[data-slot=card-header]]:align-top">
+        {header}
+      </summary>
+      <div className="mt-6">{children}</div>
+    </details>
+  );
+}
 export function BuilderPanel({
   project,
   section,
@@ -143,7 +199,9 @@ export function BuilderPanel({
       {section === "development" && (
         <details className="my-4 rounded-lg border bg-white p-6" open>
           <summary>
-              <span className="leading-none font-semibold cursor-pointer">Plan ve tasarımdan çalışan uygulamaya</span>
+            <span className="leading-none font-semibold cursor-pointer">
+              Plan ve tasarımdan çalışan uygulamaya
+            </span>
           </summary>
           <div className="mt-4 space-y-3 text-sm">
             <p className="text-sm text-muted-foreground">
@@ -266,65 +324,64 @@ export function BuilderPanel({
         </details>
       )}
       {job?.implementation && (
-        <details className="my-4 rounded-lg border bg-white p-6">
-          <summary>
-            <span className="leading-none font-semibold cursor-pointer">Üretilen uygulama işlevleri</span>
-            <p className="text-sm text-muted-foreground mb-3">
-              {job.implementation.summary}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {job.implementation.checks.length} iş kuralı örneği doğrulandı. Bu
-              kontroller cihaz ve canlı sunucu testinin yerine geçmez.
-            </p>
-          </summary>
-          <div className="mt-4 space-y-3 text-sm">
-            <ul className="space-y-3">
-              {job.implementation.coverage.map((item, index) => (
-                <li key={index} className="rounded-md border p-3 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">{item.requirement}</span>
-                    <Badge variant="outline">
-                      {
-                        {
-                          implemented: "Kodlandı",
-                          needs_setup: "Kurulum gerekli",
-                          unsupported: "Desteklenmiyor",
-                        }[item.status]
-                      }
-                    </Badge>
-                  </div>
-                  <p className="mt-2 text-muted-foreground">{item.detail}</p>
-                </li>
-              ))}
-            </ul>
-            {job.implementation.setup.length > 0 && (
-              <div className="rounded-md border border-amber-300 p-4">
-                <h3 className="mb-2 text-sm font-medium">
-                  Uygulamayı kullanmadan önce
-                </h3>
-                <ul className="list-disc space-y-2 pl-5 text-sm">
-                  {job.implementation.setup.map((step, index) => (
-                    <li key={index}>{step}</li>
-                  ))}
-                </ul>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Sunucu kurulumu otomatik yapılmadı. Kurulum dosyaları ve
-                  migration üretilen uygulama klasöründedir.
-                </p>
-              </div>
-            )}
-            <details className="text-sm">
-              <summary>İş kuralı kontrolleri</summary>
-              <ul className="mt-2 list-disc pl-5">
-                {job.implementation.checks.map((check, index) => (
-                  <li key={index}>
-                    {check.name} · {check.passed ? "Geçti" : "Başarısız"}
-                  </li>
+        <div className="my-4 rounded-lg border bg-white p-6">
+          <details>
+            <summary className="cursor-pointer [&>[data-slot=card-header]]:inline-grid [&>[data-slot=card-header]]:w-[calc(100%-1.5rem)] [&>[data-slot=card-header]]:px-0 [&>[data-slot=card-header]]:align-top">
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="leading-6">Üretilen uygulama işlevleri</CardTitle>
+                </div>
+                <CardDescription>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    {job.implementation.summary}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {job.implementation.checks.length} iş kuralı örneği doğrulandı.
+                    Bu kontroller cihaz ve canlı sunucu testinin yerine geçmez.
+                  </p>
+                </CardDescription>
+              </CardHeader>
+            </summary>
+            <div className="mt-4 space-y-3 text-sm">
+              <ul className="space-y-3">
+                {job.implementation.coverage.map((item, index) => (
+                  <CoverageItem key={index} item={item} />
                 ))}
               </ul>
-            </details>
-          </div>
-        </details>
+              {job.implementation.setup.length > 0 && (
+                <div className="rounded-md border border-amber-300 p-4">
+                  <h3 className="mb-2 text-sm font-medium">
+                    Uygulamayı kullanmadan önce
+                  </h3>
+                  <ul className="list-disc space-y-2 pl-5 text-sm">
+                    {job.implementation.setup.map((step, index) => (
+                      <li key={index}>{step}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Sunucu kurulumu otomatik yapılmadı. Kurulum dosyaları ve
+                    migration üretilen uygulama klasöründedir.
+                  </p>
+                </div>
+              )}
+              <details className="text-sm">
+                <summary>İş kuralı kontrolleri</summary>
+                <ul className="mt-2 list-disc pl-5">
+                  {job.implementation.checks.map((check, index) => (
+                    <li key={index}>
+                      {check.name} · {check.passed ? "Geçti" : "Başarısız"}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          </details>
+          {job.implementation.coverage.slice(-1).map((item) => (
+            <ul key="latest-coverage" className="mt-4 peer-open:hidden">
+              <CoverageItem item={item} />
+            </ul>
+          ))}
+        </div>
       )}
       {section === "tests" && (
         <Card className="p-5 shadow-none">
@@ -351,22 +408,27 @@ export function BuilderPanel({
       )}
       {section !== "build" &&
         job?.tasks.map((task) => (
-          <Card
-            key={`${task.kind ?? "screen"}:${task.screenId}`}
-            className="shadow-none"
+          <TaskCard
+            key={`${job.id}:${task.kind ?? "screen"}:${task.screenId}:${section === "development" ? task.status : "tests"}`}
+            collapsible={section === "development"}
+            running={task.status === "running"}
+            header={
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-base">{task.name}</CardTitle>
+                  <Badge variant="secondary">{labels[task.status]}</Badge>
+                </div>
+                <CardDescription>
+                  Deneme {task.attempts} ·{" "}
+                  {task.model ??
+                    (task.kind === "features"
+                      ? "gpt-5-mini"
+                      : "gpt-6-luna")}{" "}
+                  · ${task.costUsd.toFixed(6)}
+                </CardDescription>
+              </CardHeader>
+            }
           >
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-base">{task.name}</CardTitle>
-                <Badge variant="secondary">{labels[task.status]}</Badge>
-              </div>
-              <CardDescription>
-                Deneme {task.attempts} ·{" "}
-                {task.model ??
-                  (task.kind === "features" ? "gpt-5-mini" : "gpt-6-luna")}{" "}
-                · ${task.costUsd.toFixed(6)}
-              </CardDescription>
-            </CardHeader>
             <CardContent className="space-y-3">
               {section === "development" && task.summary && (
                 <p className="text-sm">{task.summary}</p>
@@ -389,7 +451,7 @@ export function BuilderPanel({
                 </details>
               )}
             </CardContent>
-          </Card>
+          </TaskCard>
         ))}
       {section === "tests" && job?.setupLog && (
         <details>
