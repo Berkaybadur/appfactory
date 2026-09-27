@@ -40,7 +40,7 @@ Supabase veya AI anahtarı gerekmez. `WORKER_PORT` değiştirilirse hem web hem 
 
 Supabase ile ortak proje kaydı eklendi. Her bilgisayar aynı Supabase bağlantısını kullanır; ekip üyeleri kendi hesaplarıyla giriş yapar. Plan, ekran ve tasarım düzenlemeleri ortak çalışma alanına kaydedilir. Yerel projeler **Hesap ve bulut kaydı → Yerel projeleri ortak alana aktar** ile taşınır. Kurulum, üyelik SQL'i, çakışma yönetimi ve kapsam sınırları için [Supabase rehberi](supabase/README.md).
 
-Supabase tablo/üyelik kurulumu tamamlanmadan bulut kaydı çalışmaz. Worker işleri, üretilen Expo klasörleri, görsel dosyaları ve QR oturumları bu aşamada bilgisayara özeldir. Başka bilgisayarda ortak proje belgesinin görünmesi, o bilgisayarda kod çıktısı bulunduğu anlamına gelmez.
+Supabase tablo/üyelik kurulumu tamamlanmadan bulut kaydı çalışmaz. Expo çalışma klasörleri ve QR oturumları yereldir. Tasarım PNG dosyaları ve üretilen uygulama kaynakları projenin private GitHub deposuyla paylaşılır (bkz. GITHUB-SYNC.md). Başka bilgisayarda ortak proje belgesinin görünmesi, o bilgisayarda kod çıktısı bulunduğu anlamına gelmez.
 
 ### Yerel mod ve üretim dosyaları
 
@@ -151,7 +151,6 @@ Başarılı revizyonlar sürüm seçicisinde görünür; eski sürüme dönmek m
 Ekranlar sekmesinde en fazla 20 ekran tanımlanabilir. Ana ekran zorunludur; diğer ekranlar silinebilir. Kartlar başlangıçta kapalıdır; başlıktan veya Tümünü aç / Tümünü kapat düğmelerinden yönetilir. Yeni ekran otomatik açılır. Değişiklikler Ekranları kaydet ile ortak proje kaydına aktarılır ve ekran/tasarım onayları yenilenir. Mevcut üretilmiş çıktılar korunur. Özel ekranlar ayrı Expo rotası ve başlangıç içeriği alır; fikre özel davranışlar Builder aşamasında mevcut yetenekler kapsamında hazırlanır.
 
 Kod üretimi (uygulama işlevleri, ekranlar ve tek ekran revizyonları) GPT-6 Luna kullanır: gpt-6-luna, medium reasoning, Standard servis katmanı. Planner modeli değişmez. Builder maliyeti milyon token başına 0.10 USD giriş / 0.50 USD çıkış üzerinden hesaplanır; belirsiz maliyet rezervi ve görev sınırları korunur. Kaynak: https://developers.openai.com/api/docs/models/gpt-6-luna (25 Eylül 2026).
-
 
 ### Demo testleri ve yayın tamamlama
 

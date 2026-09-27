@@ -78,7 +78,7 @@ export async function assertDesignAssets(root: string, project: Project) {
             (screen) => screen.id === reference.screenId,
           )?.name ?? reference.screenId;
         throw new Error(
-          `“${name}” ekranının onaylı tasarım dosyası bu bilgisayarda yok. Supabase proje kaydı görsel dosyalarını içermez. Görseli üreten bilgisayarın workspace/design-images klasöründeki ${reference.assetId}.json ve .png dosyalarını buraya aktarın veya Tasarım sayfasında görselleri yeniden üretip onaylayın.`,
+          `“${name}” ekranının onaylı tasarım dosyası bu bilgisayarda yok. Tasarım sayfasını açıp GitHub görsel eşitlemesini tamamlayın. Görsel henüz repoya gönderilmediyse üretildiği bilgisayarda Tasarım sayfasını açın (${reference.assetId}).`,
         );
       }
     }

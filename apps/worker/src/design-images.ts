@@ -202,7 +202,7 @@ export class DesignImageManager {
           this.cloudError =
             error instanceof Error
               ? error.message
-              : "Görsel buluta kaydedilemedi; yerel dosya korundu.";
+              : "Görsel GitHub'a gönderilemedi; yerel dosya korundu.";
         }
       }
       this.locked = false;

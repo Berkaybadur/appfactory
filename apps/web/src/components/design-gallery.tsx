@@ -62,7 +62,7 @@ export function DesignGallery({ project }: { project: Project }) {
             data.cloudError ??
               (data.cloudEnabled
                 ? ""
-                : "Görsel paylaşımı için worker Supabase bağlantısı gerekli."),
+                : "Görsel paylaşımı için worker GitHub bağlantısı gerekli."),
           );
           syncImageCost(project.id, data.totalCostUsd);
         }
@@ -218,11 +218,10 @@ export function DesignGallery({ project }: { project: Project }) {
               Onaylı görseller bu bilgisayarda bulunamadı
             </h3>
             <p className="text-sm">
-              Proje Supabase’de kayıtlı; görsel dosyaları üretildikleri
-              bilgisayarda kalır. İlgili JSON ve PNG dosyalarını
-              workspace/design-images klasörüne aktarıp worker’ı yeniden
-              başlatın. Alternatif olarak bu bilgisayarda yeni tasarım turu
-              başlatabilirsiniz.
+              Tasarım görselleri projenin private GitHub deposundan alınır.
+              GitHub bağlantısını kontrol edin. Eski görseller henüz repoya
+              gönderilmediyse üretildikleri bilgisayarda Tasarım sayfasını açın;
+              mevcut PNG dosyaları otomatik aktarılır.
             </p>
             <p className="text-xs text-muted-foreground">
               Yeni görsel üretimi ücretlidir. Bu düğme yalnızca üretim

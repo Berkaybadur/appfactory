@@ -58,9 +58,9 @@ export function CloudAccount() {
           <>
             <p>
               Projeler, planlar, ekran tanımları ve tasarım tercihleri ortak
-              çalışma alanında saklanır. Tasarım görselleri Supabase ile
-              paylaşılır. Expo dosyaları ve çalışan önizleme üretim
-              bilgisayarında kalır.
+              çalışma alanında saklanır. Tasarım görselleri proje ile aynı
+              private GitHub deposunda PNG dosyaları olarak paylaşılır. Expo
+              dosyaları ve çalışan önizleme üretim bilgisayarında kalır.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button

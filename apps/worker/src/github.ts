@@ -21,12 +21,7 @@ import { assertRealDirectory } from "@app-factory/generator";
 const shaSchema = z.string().regex(/^[a-f0-9]{40}$/);
 const refSchema = z.object({ object: z.object({ sha: shaSchema }) });
 const metadata = "appfactory-job.json";
-const excluded = new Set([
-  "node_modules",
-  "dist",
-  "design-references",
-  "design-targets",
-]);
+const excluded = new Set(["node_modules", "dist", "design-targets"]);
 export function portableFile(name: string) {
   if ([".gitignore", ".easignore"].includes(name)) return true;
   const parts = name.split("/");
@@ -377,12 +372,12 @@ export class GithubSync {
       this.busy = false;
     }
   }
-  private async blob(route: string, sha: string) {
+  private async blob(route: string, sha: string, limit = 5_000_000) {
     const blob = z
       .object({
         encoding: z.literal("base64"),
         content: z.string(),
-        size: z.number().max(5_000_000),
+        size: z.number().max(limit),
       })
       .parse(await this.api(`${route}/git/blobs/${shaSchema.parse(sha)}`));
     const data = Buffer.from(blob.content.replace(/\s/g, ""), "base64");
@@ -395,6 +390,147 @@ export class GithubSync {
     )
       throw new Error("GitHub dosya bütünlüğü doğrulanamadı.");
     return data;
+  }
+  async syncDesignFiles(
+    projectId: string,
+    create: boolean,
+    reconcile: (
+      remote: Map<string, string>,
+      read: (name: string) => Promise<Buffer>,
+    ) => Promise<Map<string, Buffer>>,
+  ) {
+    projectIdSchema.parse(projectId);
+    if (this.busy) throw new Error("GitHub eşitlemesi sürüyor.");
+    this.busy = true;
+    try {
+      const repo = await this.repo(projectId, create);
+      if (!repo) return;
+      const branch = "factory-design-assets";
+      const ref = refSchema
+        .nullable()
+        .parse(
+          await this.api(
+            `${repo.route}/git/ref/heads/${branch}`,
+            "GET",
+            undefined,
+            true,
+          ),
+        );
+      const remote = new Map<string, string>();
+      if (ref) {
+        const tree = z
+          .object({
+            truncated: z.boolean(),
+            tree: z.array(
+              z.object({
+                path: z.string(),
+                mode: z.string(),
+                type: z.string(),
+                sha: shaSchema,
+              }),
+            ),
+          })
+          .parse(
+            await this.api(
+              `${repo.route}/git/trees/${ref.object.sha}?recursive=1`,
+            ),
+          );
+        if (tree.truncated || tree.tree.length > 2001)
+          throw new Error("GitHub tasarım dosyası sınırı aşıldı.");
+        for (const entry of tree.tree) {
+          if (entry.type === "tree" && entry.path === "design-images") continue;
+          if (
+            entry.type !== "blob" ||
+            entry.mode !== "100644" ||
+            !/^design-images\/[a-f0-9-]{36}\.(json|png)$/.test(entry.path) ||
+            remote.has(entry.path)
+          ) {
+            throw new Error("GitHub tasarım dosyası geçersiz.");
+          }
+          remote.set(entry.path, entry.sha);
+        }
+      }
+      const additions = await reconcile(remote, async (name) => {
+        const sha = remote.get(name);
+        if (!sha) throw new Error("GitHub tasarım dosyası eksik.");
+        return this.blob(
+          repo.route,
+          sha,
+          name.endsWith(".png") ? 20_000_000 : 100_000,
+        );
+      });
+      if (additions.size) {
+        if (remote.size + additions.size > 2000)
+          throw new Error("GitHub tasarım dosyası sınırı aşıldı.");
+        const entries = [...remote].map(([name, sha]) => ({
+          path: name,
+          mode: "100644",
+          type: "blob",
+          sha,
+        }));
+        for (const [name, data] of additions) {
+          if (
+            remote.has(name) ||
+            !/^design-images\/[a-f0-9-]{36}\.(json|png)$/.test(name) ||
+            data.length > 20_000_000
+          ) {
+            throw new Error("Tasarım dosyası mevcut kaydın üzerine yazamaz.");
+          }
+          checkSecrets(data, this.token);
+          const blob = z.object({ sha: shaSchema }).parse(
+            await this.api(`${repo.route}/git/blobs`, "POST", {
+              content: data.toString("base64"),
+              encoding: "base64",
+            }),
+          );
+          entries.push({
+            path: name,
+            mode: "100644",
+            type: "blob",
+            sha: blob.sha,
+          });
+        }
+        const tree = z
+          .object({ sha: shaSchema })
+          .parse(
+            await this.api(`${repo.route}/git/trees`, "POST", {
+              tree: entries,
+            }),
+          );
+        const base =
+          ref ??
+          refSchema.parse(
+            await this.api(
+              `${repo.route}/git/ref/heads/${encodeURIComponent(repo.default_branch)}`,
+            ),
+          );
+        const commit = z.object({ sha: shaSchema }).parse(
+          await this.api(`${repo.route}/git/commits`, "POST", {
+            message: "App Factory tasarım görselleri",
+            tree: tree.sha,
+            parents: [base.object.sha],
+          }),
+        );
+        if (ref) {
+          await this.api(`${repo.route}/git/refs/heads/${branch}`, "PATCH", {
+            sha: commit.sha,
+            force: false,
+          });
+        } else {
+          await this.api(`${repo.route}/git/refs`, "POST", {
+            ref: `refs/heads/${branch}`,
+            sha: commit.sha,
+          });
+        }
+      }
+      this.status.set(projectId, {
+        error: null,
+        ...this.status.get(projectId),
+        url: repo.url,
+      });
+    } finally {
+      this.busy = false;
+    }
   }
   async list(id: string, progress: (value: number) => void = () => {}) {
     const repo = await this.repo(id);

@@ -110,9 +110,10 @@ export function GithubPanel({ project }: { project: Project }) {
             </CardTitle>
           </div>
           <CardDescription>
-            Üretim tamamlandığında veya durduğunda kod ve görev kaydı private
-            depoya otomatik gönderilir. Başka bilgisayarda bir sürümü alarak
-            devam edebilirsiniz. Yerel değişikliklerin üzerine yazılmaz.
+            Tasarım görselleri PNG dosyaları olarak aynı private depoda
+            saklanır. Üretim tamamlandığında veya durduğunda kod ve görev kaydı
+            private depoya otomatik gönderilir. Başka bilgisayarda bir sürümü
+            alarak devam edebilirsiniz. Yerel değişikliklerin üzerine yazılmaz.
           </CardDescription>
         </CardHeader>
       </summary>

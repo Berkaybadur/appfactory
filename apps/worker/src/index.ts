@@ -1,6 +1,6 @@
 import { GithubSync } from "./github";
 import { ReleaseManager } from "./release";
-import { DesignAssetCloud } from "./design-cloud";
+import { DesignAssetGithub } from "./design-github";
 import { EasManager } from "./eas";
 import { PreviewManager } from "./preview";
 import type { Project } from "@app-factory/schemas";
@@ -54,13 +54,6 @@ const designImages: DesignImageManager = new DesignImageManager(
   root,
   (id) => plannerSpend(id) + builder.spent(id),
 );
-const designCloud = await DesignAssetCloud.fromEnvironment(root);
-async function syncDesignCloud(id: string, force = false) {
-  if (!designCloud) return;
-  await designCloud.sync(id, designImages.jobs, force);
-  designImages.cloudError = null;
-}
-designImages.onSaved = (id) => syncDesignCloud(id, true);
 const builder: BuilderManager = new BuilderManager(
   root,
   (id) => plannerSpend(id) + designImages.spent(id),
@@ -93,8 +86,18 @@ try {
     "GitHub bağlantısı kurulamadı. PAT ve GITHUB_OWNER ayarlarını kontrol edip worker'ı yeniden başlatın.";
 }
 builder.onSettled = async (job) => {
-  if (github) await github.publish(job);
+  if (github) {
+    await syncDesignGithub(job.project.id, true);
+    await github.publish(job);
+  }
 };
+const designGithub = github ? new DesignAssetGithub(root, github) : null;
+async function syncDesignGithub(id: string, force = false) {
+  if (!designGithub) return;
+  await designGithub.sync(id, designImages.jobs, force);
+  designImages.cloudError = null;
+}
+designImages.onSaved = (id) => syncDesignGithub(id, true);
 
 const resolveSource = (project: Project, sourceId: string) => {
   const source = builder.jobs.get(sourceId) ?? jobs.jobs.get(project.id);
@@ -274,7 +277,12 @@ const server = createServer(async (request, response) => {
         const candidates = builder
           .list(project.id)
           .filter((job) => job.outputPath && job.status !== "running");
-        if (!candidates.length)
+        if (
+          !candidates.length &&
+          !designImages
+            .list(project.id)
+            .some((job) => job.status === "succeeded")
+        )
           throw new Error("Bu bilgisayarda gönderilecek çıktı bulunamadı.");
         const sync = github;
         const operation = startGithubOperation(
@@ -284,11 +292,15 @@ const server = createServer(async (request, response) => {
         );
         githubPending = true;
         void (async () => {
+          await syncDesignGithub(project.id, true);
+          operation.progress = 10;
           for (const [index, job] of candidates.entries()) {
             await sync.publish(job, (value) => {
               operation.progress = Math.min(
                 99,
-                Math.round(((index + value / 100) / candidates.length) * 100),
+                Math.round(
+                  10 + ((index + value / 100) / candidates.length) * 90,
+                ),
               );
             });
           }
@@ -323,10 +335,12 @@ const server = createServer(async (request, response) => {
         github.status.set(project.id, { error: null });
         void builder
           .importRemote(
-            () =>
-              sync.restore(project, body.id, body.sha, (value) => {
+            async () => {
+              await syncDesignGithub(project.id, true);
+              return sync.restore(project, body.id, body.sha, (value) => {
                 operation.progress = Math.round(value * 0.7);
-              }),
+              });
+            },
             (value) => {
               operation.progress = value;
             },
@@ -434,7 +448,7 @@ const server = createServer(async (request, response) => {
           "Başka bir AI görevi sürüyor. Tamamlanmasını bekleyin.",
         );
       const body = await readBody(request);
-      await syncDesignCloud(projectSchema.parse(body.project).id, true);
+      await syncDesignGithub(projectSchema.parse(body.project).id, true);
       send(202, {
         job: await builder.start(
           body.project,
@@ -459,7 +473,7 @@ const server = createServer(async (request, response) => {
       }
       const id = projectIdSchema.parse(url.searchParams.get("projectId"));
       try {
-        await syncDesignCloud(id);
+        await syncDesignGithub(id);
       } catch (error) {
         designImages.cloudError =
           error instanceof Error
@@ -469,7 +483,7 @@ const server = createServer(async (request, response) => {
       send(200, {
         enabled: designImages.enabled,
         cloudError: designImages.cloudError,
-        cloudEnabled: !!designCloud,
+        cloudEnabled: !!designGithub,
         jobs: designImages.list(id),
         totalCostUsd: committedCost(id),
       });
@@ -490,7 +504,7 @@ const server = createServer(async (request, response) => {
           !body.reviewedIds.every((id: unknown) => typeof id === "string")
         )
           throw new Error("Görsel onayları geçersiz.");
-        await syncDesignCloud(project.id, true);
+        await syncDesignGithub(project.id, true);
         const approved = approveImageDesign(
           project,
           designImages.list(project.id),
@@ -505,7 +519,7 @@ const server = createServer(async (request, response) => {
       }
       if (builder.busy || planner.busy)
         throw new Error("AI analizi sürüyor. Tamamlanmasını bekleyin.");
-      await syncDesignCloud(projectSchema.parse(body.project).id, true);
+      await syncDesignGithub(projectSchema.parse(body.project).id, true);
       send(202, { job: await designImages.start(body) });
       return;
     }

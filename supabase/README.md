@@ -47,7 +47,7 @@ Bu kurulum bloğunu bir kez çalıştırın. Üyelik yönetimi yalnızca yöneti
 
 Ortak: proje adı/fikri, aşama, bütçe/maliyet bilgisi, plan, ekranlar, tasarım tercihleri, plan taslağı ve belge sürüm geçmişi.
 
-Yerel: worker işleri, Expo kaynak klasörleri, QR/Metro süreçleri, cihaza bağlı önizleme onayı ve EAS iş dosyaları. Tasarım PNG dosyaları ve başarılı görsel iş kayıtları factory_design_assets tablosunda base64 olarak paylaşılır. Başka bilgisayarda proje tanımlarını düzenlemek mümkündür; aynı üretilmiş uygulamayı çalıştırmak için kaynakları ayrıca taşımak veya yeniden üretmek gerekir. Üretilen uygulamanın AsyncStorage kullanıcı verisi bu değişikliğe dahil değildir.
+Yerel: worker işleri, Expo kaynak klasörleri, QR/Metro süreçleri, cihaza bağlı önizleme onayı ve EAS iş dosyaları. Tasarım PNG dosyaları ve başarılı görsel iş kayıtları proje ile aynı private GitHub deposunda paylaşılır; Supabase görsel dosyası saklamaz. Başka bilgisayarda proje tanımlarını düzenlemek mümkündür; aynı üretilmiş uygulamayı çalıştırmak için kaynakları ayrıca taşımak veya yeniden üretmek gerekir. Üretilen uygulamanın AsyncStorage kullanıcı verisi bu değişikliğe dahil değildir.
 
 ## Doğrulama
 
@@ -63,8 +63,8 @@ Erişim modeli Supabase'in [RLS belgelerini](https://supabase.com/docs/guides/da
 
 ## Paylaşılan tasarım görselleri
 
-202609250002_design_assets.sql migration dosyasını çalıştırın. Her bilgisayarın worker tarafında (root .env veya worker ortamında) NEXT_PUBLIC_SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY gerekir. Service-role anahtarı tarayıcıya gönderilmez. Tablo RLS ile yalnızca çalışma alanı üyelerine açıktır.
+Görseller için Supabase base64 paylaşımı kaldırıldı. Worker, mevcut GITHUB_TOKEN ve GITHUB_OWNER ayarlarıyla PNG dosyalarını projenin private GitHub deposuna gönderir. Görsel paylaşımı için Supabase service-role anahtarı veya görsel tablosu kurulumu gerekmez. Proje belgeleri ve üyelikler Supabase üzerinden paylaşılmaya devam eder.
 
-Yeni başarılı görseller iş kaydı, base64 PNG ve SHA-256 ile yüklenir. Tasarım sayfası açıldığında mevcut yerel başarılı görseller de aktarılır; eksik görseller buluttan yerel önbelleğe indirilir. Builder başlatılmadan önce eşitleme yapılır. Görseller proje belgelerinden ayrı tutulur; metadata en fazla 15 saniyede bir sorgulanır, PNG yalnızca eksikse indirilir. En fazla 20 MB PNG desteklenir. Ağ hatasında yerel kopya korunur; sonraki eşitleme tekrar dener.
+Tasarım sayfasını görsellerin bulunduğu bilgisayarda açmak, mevcut yerel dosyaları da GitHub'a aktarır. Diğer bilgisayarda aynı sayfa eksik görselleri indirir. Yeni görsel üretimi gerekmez. Ayrıntılar: [GitHub paylaşımı](../GITHUB-SYNC.md).
 
-Daha önce başka bilgisayarda üretilen görseller için güncel kodu o bilgisayarda çalıştırıp Tasarım sayfasını bir kez açın. Bu aktarım AI çağrısı veya yeni üretim yapmaz.
+Eski factory_design_assets tablosu daha önce oluşturulduysa kayıtları yerinde kalır; uygulama bu tabloyu artık okumaz veya güncellemez. Bu değişiklik canlı veritabanında veri silmez.

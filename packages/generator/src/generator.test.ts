@@ -331,7 +331,10 @@ test("missing design metadata or PNG gives actionable recovery before generation
       path.join(root, "workspace/design-images", assetId + ".json"),
       "{}",
     );
-    await assert.rejects(assertDesignAssets(root, input), /Tasarım sayfasında/);
+    await assert.rejects(
+      assertDesignAssets(root, input),
+      /GitHub görsel eşitlemesini/,
+    );
     await writeFile(
       path.join(root, "workspace/design-images", assetId + ".png"),
       "fixture",
