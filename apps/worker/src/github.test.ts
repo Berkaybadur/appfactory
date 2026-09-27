@@ -148,9 +148,27 @@ test("GitHub round trip across computers preserves tasks and costs, excludes sec
     const cloud = mockGithub(),
       a = new GithubSync(first, "team", "test-token", cloud.transport),
       b = new GithubSync(second, "team", "test-token", cloud.transport);
-    const published = await a.publish(job);
+    const uploadProgress: number[] = [];
+    const published = await a.publish(job, (value) =>
+      uploadProgress.push(value),
+    );
+    assert.equal(uploadProgress.at(-1), 100);
+    assert.ok(uploadProgress.some((value) => value > 20 && value < 80));
+    assert.deepEqual(
+      uploadProgress,
+      [...uploadProgress].sort((a, b) => a - b),
+    );
     assert.equal((await b.list("test")).jobs.length, 1);
-    const imported = await b.restore(job.project, id, published.sha);
+    const downloadProgress: number[] = [];
+    const imported = await b.restore(job.project, id, published.sha, (value) =>
+      downloadProgress.push(value),
+    );
+    assert.equal(downloadProgress.at(-1), 100);
+    assert.ok(downloadProgress.some((value) => value > 10 && value < 75));
+    assert.deepEqual(
+      downloadProgress,
+      [...downloadProgress].sort((a, b) => a - b),
+    );
     assert.equal(imported.tasks[0]?.attempts, 2);
     assert.equal(imported.tasks[0]?.costUsd, 0.02);
     assert.equal(imported.tasks[0]?.log, "");
@@ -177,7 +195,12 @@ test("GitHub round trip across computers preserves tasks and costs, excludes sec
       },
     );
     await manager.initialize();
-    await manager.importRemote(async () => imported);
+    const checkProgress: number[] = [];
+    await manager.importRemote(
+      async () => imported,
+      (value) => checkProgress.push(value),
+    );
+    assert.deepEqual(checkProgress, [70, 80, 90, 95]);
     assert.equal(commands.length, 3);
     assert.equal(imported.status, "ready");
     await writeFile(

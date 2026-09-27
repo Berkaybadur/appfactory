@@ -17,8 +17,9 @@ export class ProjectSync<T extends { id: string }> {
     private persist: (pending: PendingProject<T>[]) => void,
     private changed: (
       projects: T[],
-      status: "synced" | "saving" | "error",
+      status: "synced" | "saving" | "loading" | "error",
       error?: string,
+      progress?: number,
     ) => void,
   ) {
     for (const item of pending) this.pending.set(item.document.id, item);
@@ -26,22 +27,31 @@ export class ProjectSync<T extends { id: string }> {
   stop() {
     this.stopped = true;
   }
-  private notify(status: "synced" | "saving" | "error", error?: string) {
+  private notify(
+    status: "synced" | "saving" | "loading" | "error",
+    error?: string,
+    progress?: number,
+  ) {
     if (this.stopped) return;
     const projects = new Map(
       [...this.rows].map(([id, row]) => [id, row.document]),
     );
     for (const [id, item] of this.pending) projects.set(id, item.document);
-    this.changed([...projects.values()], status, error);
+    this.changed([...projects.values()], status, error, progress);
   }
   async refresh() {
     if (this.running || this.stopped) return;
     this.running = true;
+    this.notify("loading", undefined, 0);
     try {
       const rows = await this.repository.list();
       if (this.stopped) return;
       this.rows = new Map(rows.map((row) => [row.document.id, row]));
-      this.notify(this.pending.size ? "saving" : "synced");
+      this.notify(
+        this.pending.size ? "saving" : "synced",
+        undefined,
+        Math.round(100 / (1 + this.pending.size)),
+      );
     } catch (error) {
       this.notify(
         "error",
@@ -53,7 +63,7 @@ export class ProjectSync<T extends { id: string }> {
     } finally {
       this.running = false;
     }
-    await this.flush();
+    await this.flush(1);
   }
   enqueue(projects: T[]) {
     if (this.stopped) throw new Error("Oturum değişti. Yeniden giriş yapın.");
@@ -75,10 +85,10 @@ export class ProjectSync<T extends { id: string }> {
     // Storage failure must prevent reporting the edit as queued successfully.
     this.persist([...next.values()]);
     this.pending = next;
-    this.notify(this.pending.size ? "saving" : "synced");
+    this.notify(this.pending.size ? "saving" : "synced", undefined, 0);
     void this.flush();
   }
-  async flush() {
+  async flush(completed = 0) {
     if (this.running || this.stopped) return;
     this.running = true;
     try {
@@ -95,7 +105,12 @@ export class ProjectSync<T extends { id: string }> {
         this.persist([...next.values()]);
         this.pending = next;
         this.rows.set(id, saved);
-        this.notify(this.pending.size ? "saving" : "synced");
+        completed++;
+        this.notify(
+          this.pending.size ? "saving" : "synced",
+          undefined,
+          Math.round((100 * completed) / (completed + this.pending.size)),
+        );
       }
     } catch (error) {
       this.notify(

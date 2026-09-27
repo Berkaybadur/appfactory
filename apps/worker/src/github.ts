@@ -252,7 +252,10 @@ export class GithubSync {
       return { file, value: null };
     }
   }
-  async publish(input: BuilderJob) {
+  async publish(
+    input: BuilderJob,
+    progress: (value: number) => void = () => {},
+  ) {
     if (this.busy) throw new Error("GitHub eşitlemesi sürüyor.");
     this.busy = true;
     try {
@@ -284,6 +287,7 @@ export class GithubSync {
       };
       files.set(metadata, Buffer.from(JSON.stringify(portable, null, 2)));
       for (const data of files.values()) checkSecrets(data, this.token);
+      progress(10);
       const repo = (await this.repo(job.project.id, true))!,
         branch = `factory-${job.id}`;
       const ref = refSchema
@@ -302,6 +306,7 @@ export class GithubSync {
           "GitHub sürümü başka bilgisayarda değişmiş. Üzerine yazılmadı; önce uzak sürümü alın.",
         );
       const entries = [];
+      progress(20);
       for (const [name, data] of files) {
         const blob = z.object({ sha: shaSchema }).parse(
           await this.api(`${repo.route}/git/blobs`, "POST", {
@@ -315,6 +320,7 @@ export class GithubSync {
           type: "blob",
           sha: blob.sha,
         });
+        progress(Math.round(20 + (60 * entries.length) / files.size));
       }
       const tree = z
         .object({ sha: shaSchema })
@@ -335,6 +341,7 @@ export class GithubSync {
           parents: [base.object.sha],
         }),
       );
+      progress(90);
       if (ref)
         await this.api(`${repo.route}/git/refs/heads/${branch}`, "PATCH", {
           sha: commit.sha,
@@ -359,6 +366,7 @@ export class GithubSync {
         url: repo.url,
         updatedAt: new Date().toISOString(),
       });
+      progress(100);
       return { url: repo.url, sha: commit.sha };
     } catch (e) {
       this.status.set(input.project.id, {
@@ -388,8 +396,9 @@ export class GithubSync {
       throw new Error("GitHub dosya bütünlüğü doğrulanamadı.");
     return data;
   }
-  async list(id: string) {
+  async list(id: string, progress: (value: number) => void = () => {}) {
     const repo = await this.repo(id);
+    progress(50);
     if (!repo) return { url: null, jobs: [] };
     const jobs = [];
     for (let page = 1; page <= 10; page++) {
@@ -407,7 +416,12 @@ export class GithubSync {
     }
     throw new Error("GitHub sürüm sınırı aşıldı.");
   }
-  async restore(project: Project, id: string, sha: string) {
+  async restore(
+    project: Project,
+    id: string,
+    sha: string,
+    progress: (value: number) => void = () => {},
+  ) {
     if (this.busy) throw new Error("GitHub eşitlemesi sürüyor.");
     this.busy = true;
     try {
@@ -436,6 +450,10 @@ export class GithubSync {
       if (tree.truncated || tree.tree.length > 600)
         throw new Error("GitHub dosya listesi sınırı aşıldı.");
       const files = new Map<string, Buffer>();
+      progress(10);
+      const fileCount = tree.tree.filter(
+        (entry) => entry.type !== "tree",
+      ).length;
       const normalized = new Set<string>();
       let size = 0;
       for (const e of tree.tree) {
@@ -454,6 +472,7 @@ export class GithubSync {
           throw new Error("GitHub çıktı boyutu sınırı aşıldı.");
         checkSecrets(data, this.token);
         files.set(e.path, data);
+        progress(Math.round(10 + (65 * files.size) / fileCount));
       }
       const job = builderJobSchema.parse(
         JSON.parse(files.get(metadata)?.toString() ?? "null"),
@@ -511,6 +530,7 @@ export class GithubSync {
           );
       }
       const staging = path.join(parent, `${id}-download-${Date.now()}`);
+      progress(80);
       await mkdir(staging);
       await assertRealDirectory(staging);
       for (const [name, data] of files) {
@@ -537,6 +557,7 @@ export class GithubSync {
       );
       job.outputPath = path.relative(this.root, target);
       job.installed = false;
+      progress(100);
       return job;
     } finally {
       this.busy = false;

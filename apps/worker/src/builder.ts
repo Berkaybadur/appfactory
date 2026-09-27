@@ -61,11 +61,15 @@ import {
 export class BuilderManager {
   readonly jobs = new Map<string, BuilderJob>();
   onSettled?: (job: BuilderJob) => Promise<void>;
-  async importRemote(load: () => Promise<BuilderJob>) {
+  async importRemote(
+    load: () => Promise<BuilderJob>,
+    progress: (value: number) => void = () => {},
+  ) {
     if (this.locked) throw new Error("Builder işi sürüyor.");
     this.locked = true;
     try {
       const job = await load();
+      progress(70);
       const cwd = path.resolve(this.root, job.outputPath);
       if (
         cwd !==
@@ -97,6 +101,7 @@ export class BuilderManager {
         if (install.exitCode !== 0)
           throw new Error("Çıktı indirildi; bağımlılıklar kurulamadı.");
         job.installed = true;
+        progress(80);
         if (expectedStatus === "ready") {
           for (const [label, args] of [
             [
@@ -122,6 +127,7 @@ export class BuilderManager {
               throw new Error(
                 label + " kontrolü başarısız. İndirilen çıktı yerelde korundu.",
               );
+            progress(label === "TypeScript" ? 90 : 95);
           }
         }
         job.status = expectedStatus;

@@ -73,6 +73,8 @@ type CloudState = {
   email: string | null;
   status: "local" | "loading" | "signed-out" | "synced" | "saving" | "error";
   error: string | null;
+  action?: "import" | "refresh" | "load";
+  progress?: number;
 };
 let cloud: CloudState = {
   configured: !!supabase,
@@ -104,6 +106,13 @@ function outboxKey(id: string) {
 }
 function setCloud(update: Partial<CloudState>) {
   cloud = { ...cloud, ...update };
+  if (
+    update.status &&
+    update.status !== "loading" &&
+    update.status !== "saving"
+  ) {
+    cloud = { ...cloud, action: undefined, progress: undefined };
+  }
   snapshot = { ...snapshot };
   emit();
 }
@@ -176,11 +185,11 @@ async function activateCloud(user: { id: string; email?: string } | null) {
       pending,
       (items) =>
         localStorage.setItem(outboxKey(ownerId), JSON.stringify(items)),
-      (projects, status, error) => {
+      (projects, status, error, progress) => {
         if (cloud.userId !== ownerId) return;
-        if (status !== "error") cloudLoaded = true;
+        if (status !== "error" && status !== "loading") cloudLoaded = true;
         snapshot = { projects, ready: true, error: null };
-        setCloud({ status, error: error ?? null });
+        setCloud({ status, error: error ?? null, progress });
       },
     );
     await sync.refresh();
@@ -198,15 +207,24 @@ function importLocalProjects() {
   const raw = localStorage.getItem(KEY);
   const local = raw ? storedProjectsSchema.parse(JSON.parse(raw)).projects : [];
   // Existing cloud IDs always win; importing never overwrites another device.
-  persistProjects([
-    ...snapshot.projects,
-    ...local.filter(
-      (p) => !snapshot.projects.some((remote) => remote.id === p.id),
-    ),
-  ]);
+  setCloud({ action: "import", progress: 0 });
+  try {
+    persistProjects([
+      ...snapshot.projects,
+      ...local.filter(
+        (p) => !snapshot.projects.some((remote) => remote.id === p.id),
+      ),
+    ]);
+  } catch (error) {
+    setCloud({ action: undefined, progress: undefined });
+    throw error;
+  }
 }
 function retryCloud() {
-  if (sync) void sync.refresh();
+  if (sync) {
+    setCloud({ action: "refresh", progress: 0 });
+    void sync.refresh();
+  }
 }
 function downloadPending() {
   if (!cloud.userId) return;

@@ -90,6 +90,7 @@ export async function POST(request: Request) {
       .parse(body.project);
     return proxy(request, {
       action: body.action,
+      operationId: body.operationId,
       id: body.id,
       sha: body.sha,
       project,

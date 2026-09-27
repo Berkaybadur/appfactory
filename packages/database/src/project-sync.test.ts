@@ -23,6 +23,59 @@ function repository() {
   return { repo, rows };
 }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+test("refresh reports completed records and clears progress on a failed save", async () => {
+  const { repo } = repository();
+  const events: { status: string; progress?: number }[] = [];
+  const sync = new ProjectSync(
+    repo,
+    ["one", "two"].map((id) => ({
+      document: { id, title: id },
+      expectedVersion: 0,
+    })),
+    () => {},
+    (_docs, status, _error, progress) => events.push({ status, progress }),
+  );
+  await sync.refresh();
+  assert.deepEqual(events, [
+    { status: "loading", progress: 0 },
+    { status: "saving", progress: 33 },
+    { status: "saving", progress: 67 },
+    { status: "synced", progress: 100 },
+  ]);
+  repo.save = async () => {
+    throw new Error("offline");
+  };
+  sync.enqueue([{ id: "three", title: "three" }]);
+  await settle();
+  assert.deepEqual(events.at(-1), { status: "error", progress: undefined });
+});
+
+test("local import counts only changed records", async () => {
+  const { repo, rows } = repository();
+  const existing = { id: "existing", title: "saved" };
+  rows.set(existing.id, { document: existing, version: 1 });
+  const events: { status: string; progress?: number }[] = [];
+  const sync = new ProjectSync(
+    repo,
+    [],
+    () => {},
+    (_docs, status, _error, progress) => events.push({ status, progress }),
+  );
+  await sync.refresh();
+  events.length = 0;
+  sync.enqueue([
+    existing,
+    { id: "one", title: "one" },
+    { id: "two", title: "two" },
+  ]);
+  await settle();
+  assert.deepEqual(events, [
+    { status: "saving", progress: 0 },
+    { status: "saving", progress: 50 },
+    { status: "synced", progress: 100 },
+  ]);
+});
+
 test("importing an already synchronized project leaves the saved status intact", async () => {
   const { repo, rows } = repository();
   const document = { id: "one", title: "same" };
@@ -173,8 +226,9 @@ test("storage failure prevents upload and stopped account does not publish late 
     },
   );
   const loading = sync.refresh();
+  assert.equal(notifications, 1); // Initial loading notification precedes stop.
   sync.stop();
   release();
   await loading;
-  assert.equal(notifications, 0);
+  assert.equal(notifications, 1);
 });

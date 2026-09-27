@@ -69,6 +69,23 @@ const builder: BuilderManager = new BuilderManager(
 let github: GithubSync | null = null;
 let githubError: string | null = null;
 let githubPending = false;
+const githubOperations = new Map<
+  string,
+  {
+    id: string;
+    action: string;
+    progress: number;
+    active: boolean;
+  }
+>();
+function startGithubOperation(projectId: string, id: unknown, action: string) {
+  id ??= randomBytes(16).toString("hex");
+  if (typeof id !== "string" || id.length > 100)
+    throw new Error("İşlem kimliği geçersiz.");
+  const operation = { id, action, progress: 0, active: true };
+  githubOperations.set(projectId, operation);
+  return operation;
+}
 try {
   github = await GithubSync.fromEnvironment(root);
 } catch {
@@ -209,6 +226,7 @@ const server = createServer(async (request, response) => {
         busy: !!github?.busy || builder.busy || githubPending,
         error: githubError,
         ...github?.status.get(id),
+        operation: githubOperations.get(id) ?? null,
       });
       return;
     }
@@ -233,7 +251,23 @@ const server = createServer(async (request, response) => {
       const body = await readBody(request),
         project = projectSchema.parse(body.project);
       if (body.action === "list") {
-        send(200, await github.list(project.id));
+        const operation = startGithubOperation(
+          project.id,
+          body.operationId,
+          "list",
+        );
+        githubPending = true;
+        try {
+          send(
+            200,
+            await github.list(project.id, (value) => {
+              operation.progress = value;
+            }),
+          );
+        } finally {
+          operation.active = false;
+          githubPending = false;
+        }
         return;
       }
       if (body.action === "publish") {
@@ -243,9 +277,21 @@ const server = createServer(async (request, response) => {
         if (!candidates.length)
           throw new Error("Bu bilgisayarda gönderilecek çıktı bulunamadı.");
         const sync = github;
+        const operation = startGithubOperation(
+          project.id,
+          body.operationId,
+          "publish",
+        );
         githubPending = true;
         void (async () => {
-          for (const job of candidates) await sync.publish(job);
+          for (const [index, job] of candidates.entries()) {
+            await sync.publish(job, (value) => {
+              operation.progress = Math.min(
+                99,
+                Math.round(((index + value / 100) / candidates.length) * 100),
+              );
+            });
+          }
         })()
           .catch((error) =>
             sync.status.set(project.id, {
@@ -256,6 +302,7 @@ const server = createServer(async (request, response) => {
             }),
           )
           .finally(() => {
+            operation.active = false;
             githubPending = false;
           });
         send(202, { ok: true });
@@ -268,9 +315,22 @@ const server = createServer(async (request, response) => {
         if (typeof body.id !== "string" || typeof body.sha !== "string")
           throw new Error("Sürüm bilgisi geçersiz.");
         const sync = github;
+        const operation = startGithubOperation(
+          project.id,
+          body.operationId,
+          "restore",
+        );
         github.status.set(project.id, { error: null });
         void builder
-          .importRemote(() => sync.restore(project, body.id, body.sha))
+          .importRemote(
+            () =>
+              sync.restore(project, body.id, body.sha, (value) => {
+                operation.progress = Math.round(value * 0.7);
+              }),
+            (value) => {
+              operation.progress = value;
+            },
+          )
           .then((job) => {
             sync.status.set(project.id, {
               error: job.status === "failed" ? job.error : null,
@@ -284,6 +344,9 @@ const server = createServer(async (request, response) => {
                   ? error.message
                   : "GitHub indirmesi başarısız.",
             });
+          })
+          .finally(() => {
+            operation.active = false;
           });
         send(202, { ok: true });
         return;

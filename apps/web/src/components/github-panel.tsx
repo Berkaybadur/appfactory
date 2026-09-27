@@ -9,13 +9,29 @@ export function GithubPanel({ project }: { project: Project }) {
     busy: boolean;
     error?: string | null;
     url?: string;
+    operation?: { id: string; progress: number; active: boolean } | null;
   }>({ enabled: false, busy: false });
   const [versions, setVersions] = useState<{ id: string; sha: string }[]>([]);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [active, setActive] = useState<{
+    id: string;
+    action: "list" | "publish" | "restore";
+    versionId?: string;
+  } | null>(null);
+  const working = pending || active !== null;
+  function percentage(action: string, versionId?: string) {
+    if (active?.action !== action || active.versionId !== versionId) return "";
+    const value =
+      state.operation?.id === active.id ? state.operation.progress : 0;
+    return ` · %${Math.min(99, value)}`;
+  }
   useEffect(() => {
     let stopped = false;
+    let refreshing = false;
     async function refresh() {
+      if (refreshing) return;
+      refreshing = true;
       try {
         const r = await fetch(
           `/api/github?projectId=${encodeURIComponent(project.id)}`,
@@ -23,14 +39,26 @@ export function GithubPanel({ project }: { project: Project }) {
         );
         const data = await r.json();
         if (!r.ok) throw new Error(data.error ?? "GitHub durumu alınamadı.");
-        if (!stopped) setState(data);
+        if (!stopped) {
+          setState(data);
+          setActive((current) =>
+            current &&
+            data.operation &&
+            current.id === data.operation.id &&
+            !data.operation.active
+              ? null
+              : current,
+          );
+        }
       } catch (e) {
         if (!stopped)
           setError(e instanceof Error ? e.message : "Bağlantı kurulamadı.");
+      } finally {
+        refreshing = false;
       }
     }
     void refresh();
-    const timer = setInterval(() => void refresh(), 5000);
+    const timer = setInterval(() => void refresh(), 1000);
     return () => {
       stopped = true;
       clearInterval(timer);
@@ -41,6 +69,8 @@ export function GithubPanel({ project }: { project: Project }) {
     version?: { id: string; sha: string },
   ) {
     setPending(true);
+    const operationId = crypto.randomUUID();
+    setActive({ id: operationId, action, versionId: version?.id });
     setError("");
     try {
       const r = await fetch("/api/github", {
@@ -48,6 +78,7 @@ export function GithubPanel({ project }: { project: Project }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
+          operationId,
           project: { ...project, revisions: [] },
           ...version,
         }),
@@ -55,27 +86,33 @@ export function GithubPanel({ project }: { project: Project }) {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "GitHub işlemi başarısız.");
       if (action === "list") {
+        setActive(null);
         setVersions(data.jobs ?? []);
         if (data.url) setState((previous) => ({ ...previous, url: data.url }));
       }
-      if (action === "restore") setState((s) => ({ ...s, busy: true }));
     } catch (e) {
+      setActive(null);
       setError(e instanceof Error ? e.message : "GitHub işlemi başarısız.");
     } finally {
       setPending(false);
     }
   }
   return (
-    <details className="rounded-xl border bg-card py-6 text-card-foreground" open>
+    <details
+      className="rounded-xl border bg-card py-6 text-card-foreground"
+      open
+    >
       <summary className="mx-6 cursor-pointer [&>[data-slot=card-header]]:inline-grid [&>[data-slot=card-header]]:w-[calc(100%-1.5rem)] [&>[data-slot=card-header]]:px-0 [&>[data-slot=card-header]]:align-top">
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
-            <CardTitle className="leading-6">GitHub · Bilgisayarlar arası devam</CardTitle>
+            <CardTitle className="leading-6">
+              GitHub · Bilgisayarlar arası devam
+            </CardTitle>
           </div>
           <CardDescription>
             Üretim tamamlandığında veya durduğunda kod ve görev kaydı private
-            depoya otomatik gönderilir. Başka bilgisayarda bir sürümü alarak devam
-            edebilirsiniz. Yerel değişikliklerin üzerine yazılmaz.
+            depoya otomatik gönderilir. Başka bilgisayarda bir sürümü alarak
+            devam edebilirsiniz. Yerel değişikliklerin üzerine yazılmaz.
           </CardDescription>
         </CardHeader>
       </summary>
@@ -83,8 +120,8 @@ export function GithubPanel({ project }: { project: Project }) {
         <div className="mt-4 space-y-3 text-sm">
           {!state.enabled && (
             <p className="text-sm">
-              Worker için GITHUB_TOKEN gerekli. Üç bilgisayarda aynı GITHUB_OWNER
-              hesabını kullanın ve private depolara erişim verin.
+              Worker için GITHUB_TOKEN gerekli. Üç bilgisayarda aynı
+              GITHUB_OWNER hesabını kullanın ve private depolara erişim verin.
             </p>
           )}
           {(error || state.error) && (
@@ -100,17 +137,19 @@ export function GithubPanel({ project }: { project: Project }) {
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              disabled={!state.enabled || pending || state.busy}
+              disabled={!state.enabled || working || state.busy}
               onClick={() => void action("publish")}
             >
               Yerel çıktıları GitHub’a gönder
+              {percentage("publish")}
             </Button>
             <Button
               variant="outline"
-              disabled={!state.enabled || pending || state.busy}
+              disabled={!state.enabled || working || state.busy}
               onClick={() => void action("list")}
             >
               GitHub sürümlerini göster
+              {percentage("list")}
             </Button>
             {state.url && (
               <Button asChild variant="default">
@@ -130,10 +169,11 @@ export function GithubPanel({ project }: { project: Project }) {
               </span>
               <Button
                 variant="default"
-                disabled={pending || state.busy}
+                disabled={working || state.busy}
                 onClick={() => void action("restore", version)}
               >
                 Bu bilgisayara al ve kontrol et
+                {percentage("restore", version.id)}
               </Button>
             </div>
           ))}
