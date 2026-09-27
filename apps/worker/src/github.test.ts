@@ -8,6 +8,35 @@ import { GithubSync, collectGithubFiles, portableFile } from "./github";
 import { type BuilderJob, type DesignImageJob } from "@app-factory/schemas";
 import { DesignAssetGithub, validateDesignPng } from "./design-github";
 import { BuilderManager } from "./builder";
+test("repository deletion verifies scope on ambiguous 404 and reports denied permissions", async () => {
+  let status = 204;
+  let scopes = "";
+  const routes: string[] = [];
+  const client = new GithubSync(
+    "unused",
+    "team",
+    "test-token",
+    async (url, init) => {
+      routes.push(new URL(String(url)).pathname);
+      assert.equal(init?.method, "DELETE");
+      return new Response(null, {
+        status,
+        headers: { "x-oauth-scopes": scopes },
+      });
+    },
+  );
+  await client.deleteProject("one");
+  status = 404;
+  await assert.rejects(client.deleteProject("one"), /doğrulanamadı/);
+  scopes = "repo, delete_repo";
+  await client.deleteProject("one");
+  status = 403;
+  await assert.rejects(client.deleteProject("one"), /Administration/);
+  assert.equal(client.busy, false);
+  assert.deepEqual(routes, Array(4).fill("/repos/team/appfactory-one"));
+  await assert.rejects(client.deleteProject("../other"));
+  assert.equal(routes.length, 4);
+});
 function mockGithub() {
   const blobs = new Map<string, Buffer>(),
     trees = new Map<string, unknown>(),

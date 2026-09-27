@@ -2,15 +2,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import {
   getSpecification,
   getScreens,
   approveImageDesign,
   type Project,
+  projectSchema,
+  approvedDesignReferences,
+  designGenerationReferences,
+  designImageReservation,
+  type DesignImageJob,
 } from "@app-factory/schemas";
 import { DesignImageManager } from "./design-images";
+import type { DesignImageReference } from "@app-factory/ai";
 const base: Project = {
   id: "image-test",
   name: "Test",
@@ -40,6 +46,200 @@ async function finish(m: DesignImageManager) {
   }
   throw new Error("Timeout");
 }
+
+test("generation selects home and the two latest approved other screens without removing approvals", () => {
+  const ids = ["home", "register", "settings", "create", "details"];
+  const jobs: DesignImageJob[] = ids.map((screenId, index) => ({
+    id: randomUUID(),
+    projectId: base.id,
+    revision: 0,
+    screenId,
+    screenName: screenId,
+    brief: "",
+    status: "succeeded",
+    costUsd: 0,
+    reservedUsd: 0,
+    uncertainCostUsd: 0,
+    error: null,
+    createdAt: new Date(index * 1000).toISOString(),
+    model: "test",
+  }));
+  const current: Project = {
+    ...base,
+    specification: {
+      ...getSpecification(base),
+      screens: getScreens(getSpecification(base)).map((screen) => ({
+        ...screen,
+        enabled: true,
+      })),
+    },
+    designDraftApprovals: { revision: 0, assetIds: jobs.map((job) => job.id) },
+  };
+  const selected = designGenerationReferences(current, jobs, "details");
+  assert.deepEqual(
+    selected.map((job) => job.screenId),
+    ["home", "settings", "create"],
+  );
+  assert.equal(designImageReservation(selected.length), 0.35);
+  assert.equal(approvedDesignReferences(current, jobs).length, jobs.length);
+  assert.deepEqual(
+    designGenerationReferences(current, jobs, "home").map(
+      (job) => job.screenId,
+    ),
+    ["create", "details"],
+  );
+  const early = {
+    ...current,
+    designDraftApprovals: {
+      revision: 0,
+      assetIds: jobs.slice(0, 2).map((job) => job.id),
+    },
+  };
+  assert.deepEqual(
+    designGenerationReferences(early, jobs, "settings").map(
+      (job) => job.screenId,
+    ),
+    ["home", "register"],
+  );
+  const withoutHome = {
+    ...current,
+    designDraftApprovals: {
+      revision: 0,
+      assetIds: jobs.slice(1).map((job) => job.id),
+    },
+  };
+  assert.deepEqual(
+    designGenerationReferences(withoutHome, jobs, "details").map(
+      (job) => job.screenId,
+    ),
+    ["settings", "create"],
+  );
+});
+
+test("home then settings then registration accumulate only approved current screen references", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "design-references-"));
+  try {
+    let current: Project = {
+      ...base,
+      budgetLimit: 5,
+      specification: {
+        ...getSpecification(base),
+        screens: getScreens(getSpecification(base)).map((screen) => ({
+          ...screen,
+          enabled: ["home", "settings", "register"].includes(screen.id),
+        })),
+      },
+    };
+    const inputs: DesignImageReference[][] = [];
+    const png = Buffer.alloc(24);
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
+    png.writeUInt32BE(1024, 16);
+    png.writeUInt32BE(1536, 20);
+    const manager = new DesignImageManager(
+      root,
+      () => 0,
+      "test",
+      async (_prompt, _key, _transport, references = []) => {
+        inputs.push(references);
+        return { png, costUsd: 0.04 };
+      },
+    );
+    await manager.initialize();
+    const start = async (
+      screenId: string,
+      expectedLatestId: string | null = null,
+    ) => {
+      const job = await manager.start({
+        project: current,
+        screenId,
+        brief: "",
+        requestId: randomUUID(),
+        expectedLatestId,
+      });
+      await finish(manager);
+      return job;
+    };
+    const home = await start("home");
+    assert.deepEqual(inputs[0], []);
+    current = projectSchema.parse({
+      ...current,
+      designDraftApprovals: {
+        revision: getSpecification(current).revision,
+        assetIds: [home.id],
+      },
+    });
+    const settings = await start("settings");
+    assert.deepEqual(
+      inputs[1]!.map((reference) => reference.assetId),
+      [home.id],
+    );
+    assert.deepEqual(inputs[1]![0]!.png, png);
+    current = projectSchema.parse({
+      ...current,
+      designDraftApprovals: {
+        ...current.designDraftApprovals,
+        assetIds: [home.id, settings.id],
+      },
+    });
+    const register = await start("register");
+    assert.deepEqual(
+      inputs[2]!.map((reference) => reference.assetId),
+      [home.id, settings.id],
+    );
+    assert.deepEqual(register.referenceAssetIds, [home.id, settings.id]);
+    const saved = JSON.parse(
+      await readFile(
+        path.join(root, "workspace/design-images", register.id + ".json"),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(saved.referenceAssetIds, [home.id, settings.id]);
+    assert.deepEqual(
+      approvedDesignReferences(current, manager.list(current.id), "home").map(
+        (reference) => reference.id,
+      ),
+      [settings.id],
+    );
+    // Regenerating settings makes its old approval stale until its new image is approved.
+    const revisedSettings = await start("settings", settings.id);
+    assert.deepEqual(revisedSettings.referenceAssetIds, [home.id]);
+    const secondRegister = await start("register", register.id);
+    assert.deepEqual(secondRegister.referenceAssetIds, [home.id]);
+    const calls = inputs.length;
+    await unlink(path.join(root, "workspace/design-images", home.id + ".png"));
+    await assert.rejects(
+      start("register", secondRegister.id),
+      /PNG dosyası eksik/,
+    );
+    assert.equal(inputs.length, calls);
+    assert.equal(manager.busy, false);
+    assert.deepEqual(
+      approvedDesignReferences(
+        {
+          ...current,
+          specification: { ...getSpecification(current), revision: 1 },
+        },
+        manager.list(current.id),
+      ),
+      [],
+    );
+    await assert.rejects(
+      manager.start({
+        project: {
+          ...current,
+          designDraftApprovals: { revision: 0, assetIds: [randomUUID()] },
+        },
+        screenId: "home",
+        brief: "",
+        requestId: randomUUID(),
+        expectedLatestId: home.id,
+      }),
+      /Onaylı tasarım referansı bulunamadı/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test("image requests are idempotent; history, costs, latest approval and retry cap are enforced", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "design-test-"));
   try {

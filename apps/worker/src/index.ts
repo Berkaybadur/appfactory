@@ -1,4 +1,5 @@
 import { GithubSync } from "./github";
+import { ProjectDeletion } from "./project-deletion";
 import { ReleaseManager } from "./release";
 import { DesignAssetGithub } from "./design-github";
 import { EasManager } from "./eas";
@@ -43,6 +44,8 @@ try {
     throw new Error("Worker .env dosyası okunamadı.");
 }
 const jobs = new JobManager(root);
+const deletion = new ProjectDeletion(root);
+let activeRequests = 0;
 const planner = new PlannerManager(root);
 const plannerSpend = (id: string) => {
   const job = planner.jobs.get(id);
@@ -93,6 +96,7 @@ builder.onSettled = async (job) => {
 };
 const designGithub = github ? new DesignAssetGithub(root, github) : null;
 async function syncDesignGithub(id: string, force = false) {
+  deletion.assertAvailable(id);
   if (!designGithub) return;
   await designGithub.sync(id, designImages.jobs, force);
   designImages.cloudError = null;
@@ -170,7 +174,10 @@ async function readBody(request: IncomingMessage) {
     body += String(chunk);
     if (Buffer.byteLength(body) > 240_000) throw new Error("İstek çok büyük.");
   }
-  return JSON.parse(body);
+  const parsed = JSON.parse(body);
+  if (request.url !== "/projects/delete")
+    deletion.assertAvailable(parsed.project?.id ?? parsed.projectId);
+  return parsed;
 }
 const server = createServer(async (request, response) => {
   const send = (status: number, data: unknown) => {
@@ -199,8 +206,68 @@ const server = createServer(async (request, response) => {
     send(403, { error: "Yetkisiz istek." });
     return;
   }
+  activeRequests++;
   try {
     const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
+    if (deletion.busy)
+      throw new Error("Proje silme işlemi sürüyor. Tamamlanmasını bekleyin.");
+    if (url.pathname === "/projects/delete" && request.method === "POST") {
+      if (!request.headers["content-type"]?.startsWith("application/json"))
+        throw new Error("JSON istek gerekli.");
+      const body = await readBody(request);
+      const project = projectSchema
+        .safeExtend({ id: projectIdSchema })
+        .parse(body.project);
+      if (
+        body.confirmation !== project.name ||
+        !["check", "delete"].includes(body.action)
+      )
+        throw new Error("Silmek için proje adını eksiksiz yazın.");
+      if (
+        activeRequests > 1 ||
+        builder.busy ||
+        planner.busy ||
+        designImages.busy ||
+        designGithub?.busy ||
+        github?.busy ||
+        githubPending ||
+        eas.busy ||
+        [...jobs.jobs.values()].some((job) =>
+          ["queued", "generating", "validating"].includes(job.status),
+        )
+      )
+        throw new Error(
+          "Devam eden işlemlerin bitmesini bekleyip silmeyi yeniden deneyin.",
+        );
+      preview.assertDeletable(project.id);
+      if (!github)
+        throw new Error(
+          githubError ??
+            "Depoyu silebilmek için GITHUB_TOKEN bağlantısını yapılandırın.",
+        );
+      if (body.action === "check") await deletion.plan(project.id);
+      else {
+        const remote = github;
+        await deletion.run(project.id, () => remote.deleteProject(project.id));
+        jobs.jobs.delete(project.id);
+        planner.jobs.delete(project.id);
+        for (const [id, job] of builder.jobs)
+          if (job.project.id === project.id) builder.jobs.delete(id);
+        for (const [id, job] of designImages.jobs)
+          if (job.projectId === project.id) designImages.jobs.delete(id);
+        for (const [id, job] of eas.jobs)
+          if (job.projectId === project.id) eas.jobs.delete(id);
+        preview.forget(project.id);
+        github.status.delete(project.id);
+        githubOperations.delete(project.id);
+      }
+      send(200, { ok: true });
+      return;
+    }
+    deletion.assertAvailable(url.searchParams.get("projectId"));
+    const asset = url.searchParams.get("assetId");
+    if (asset)
+      deletion.assertAvailable(designImages.jobs.get(asset)?.projectId);
     if (url.pathname === "/revisions" && request.method === "GET") {
       const id = projectIdSchema.parse(url.searchParams.get("projectId"));
       send(200, {
@@ -571,6 +638,8 @@ const server = createServer(async (request, response) => {
     send(400, {
       error: error instanceof Error ? error.message : "İstek işlenemedi.",
     });
+  } finally {
+    activeRequests--;
   }
 });
 server.requestTimeout = 15_000;
@@ -586,6 +655,7 @@ server.listen(port, "127.0.0.1", () => {
     await builder.initialize();
     await eas.initialize();
     await preview.initialize();
+    await deletion.initialize();
     await mkdir(path.join(root, "workspace"), { recursive: true });
     await writeFile(path.join(root, "workspace/.worker-token"), token, {
       mode: 0o600,

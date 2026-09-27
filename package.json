@@ -12,7 +12,7 @@
     "build": "pnpm --filter @app-factory/web build && pnpm --filter @app-factory/worker build",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "pnpm -r typecheck",
-    "test": "node --import tsx --test packages/shared/src/*.test.ts packages/schemas/src/*.test.ts packages/generator/src/*.test.ts apps/worker/src/*.test.ts packages/ai/src/*.test.ts packages/database/src/*.test.ts",
+    "test": "node --import tsx --test packages/shared/src/*.test.ts packages/schemas/src/*.test.ts packages/generator/src/*.test.ts apps/worker/src/*.test.ts packages/ai/src/*.test.ts packages/database/src/*.test.ts apps/web/src/lib/*.test.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

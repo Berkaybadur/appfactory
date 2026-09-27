@@ -41,6 +41,9 @@ async function localFile(file: string) {
 }
 
 export class DesignAssetGithub {
+  get busy() {
+    return this.pending.size > 0;
+  }
   private pending = new Map<string, Promise<void>>();
   private last = new Map<string, number>();
   constructor(

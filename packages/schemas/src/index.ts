@@ -224,6 +224,18 @@ export const projectSchema = projectInputSchema.safeExtend({
   updatedAt: z.iso.datetime(),
   specification: specificationSchema.optional(),
   designReview: designReviewSchema.optional(),
+  designDraftApprovals: z
+    .object({
+      revision: z.number().int().nonnegative(),
+      assetIds: z
+        .array(z.uuid())
+        .max(20)
+        .refine(
+          (ids) => new Set(ids).size === ids.length,
+          "Görseller tekrarlanamaz.",
+        ),
+    })
+    .optional(),
   plannerJobId: z.string().optional(),
   plannerDraft: plannerOutputSchema.optional(),
   revisions: z.array(revisionSchema).max(20).optional(),
@@ -528,8 +540,57 @@ export const designImageJobSchema = z.object({
   error: z.string().nullable(),
   createdAt: z.iso.datetime(),
   model: z.string(),
+  referenceAssetIds: z.array(z.uuid()).max(20).optional(),
 });
 export type DesignImageJob = z.infer<typeof designImageJobSchema>;
+// Reserve additional budget for the image inputs; actual usage is accounted separately.
+export function designImageReservation(referenceCount: number) {
+  return Math.round((0.2 + referenceCount * 0.05) * 100) / 100;
+}
+export function approvedDesignReferences(
+  project: Project,
+  jobs: DesignImageJob[],
+  targetScreenId?: string,
+) {
+  const spec = getSpecification(project);
+  const approvals = project.designDraftApprovals;
+  if (approvals?.revision !== spec.revision) return [];
+  const latest = new Map<string, DesignImageJob>();
+  for (const job of jobs) {
+    if (job.projectId !== project.id || job.revision !== spec.revision)
+      continue;
+    const previous = latest.get(job.screenId);
+    if (!previous || job.createdAt >= previous.createdAt)
+      latest.set(job.screenId, job);
+  }
+  const enabled = new Set(
+    getScreens(spec)
+      .filter((screen) => screen.enabled)
+      .map((screen) => screen.id),
+  );
+  return approvals.assetIds.flatMap((id) => {
+    const job = jobs.find((candidate) => candidate.id === id);
+    return job &&
+      job.projectId === project.id &&
+      job.revision === spec.revision &&
+      job.status === "succeeded" &&
+      job.screenId !== targetScreenId &&
+      enabled.has(job.screenId) &&
+      latest.get(job.screenId)?.id === id
+      ? [job]
+      : [];
+  });
+}
+export function designGenerationReferences(
+  project: Project,
+  jobs: DesignImageJob[],
+  targetScreenId: string,
+) {
+  const approved = approvedDesignReferences(project, jobs, targetScreenId);
+  const home = approved.find((job) => job.screenId === "home");
+  const recent = approved.filter((job) => job.screenId !== "home").slice(-2);
+  return home ? [home, ...recent] : recent;
+}
 export const designImageRequestSchema = z.object({
   project: projectSchema.safeExtend({ id: projectIdSchema }),
   screenId: screenIdSchema,

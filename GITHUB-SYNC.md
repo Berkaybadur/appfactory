@@ -9,6 +9,7 @@ Tasarım görselleri aynı deponun `factory-design-assets` dalındaki `design-im
 1. App Factory'nin bu sürümünü her bilgisayara alın; aynı Supabase çalışma alanını kullanın.
 2. Her bilgisayarın yerel `.env` veya `apps/worker/.env` dosyasında `GITHUB_TOKEN` ve **aynı** `GITHUB_OWNER=gorkemyildiz` değerlerini tanımlayın. Token paylaşmak yerine her ekip üyesi kendi PAT'ını kullanabilir; ilgili private depolara erişimi bulunmalıdır.
 3. PAT için repository Contents read/write gerekir. Uygulamanın yeni repo oluşturabilmesi için hesabın ve token'ın repo oluşturma yetkisi de bulunmalıdır. Fine-grained PAT repository seçimi yeni depoları kapsamalıdır. Yetki yoksa aynı adla private repo oluşturup token'a erişim verin.
+   Proje kartından depoyu da silebilmek için ayrıca fine-grained PAT'ta **Administration: write**, classic PAT'ta **delete_repo** gerekir. Organizasyonun depo silme politikası da buna izin vermelidir. [GitHub silme API'si](https://docs.github.com/en/rest/repos/repos#delete-a-repository).
 4. Worker'ı yeniden başlatın. Token tarayıcıya, API yanıtına, GitHub'a veya üretilen uygulamaya verilmez.
 
 GITHUB_OWNER boşsa PAT'ın hesap adı kullanılır. Ekip üyeleri farklı hesaplardaki PAT'ları kullanıyorsa GITHUB_OWNER mutlaka aynı olmalıdır. Private repo erişimi GitHub Settings > Collaborators bölümünden repo sahibi tarafından yönetilir; bu uygulama davet göndermez.

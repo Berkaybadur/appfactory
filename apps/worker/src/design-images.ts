@@ -5,6 +5,7 @@ import {
   writeFile,
   rename,
   realpath,
+  lstat,
 } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -13,15 +14,18 @@ import {
   getSpecification,
   getScreens,
   type DesignImageJob,
+  designGenerationReferences,
+  designImageReservation,
 } from "@app-factory/schemas";
 import { assertRealDirectory } from "@app-factory/generator";
 import {
   designImagePrompt,
   generateDesignImage,
   imageModel,
-  imageReservationUsd,
+  type DesignImageReference,
   PlannerError,
 } from "@app-factory/ai";
+import { validateDesignPng } from "./design-github";
 export class DesignImageManager {
   onSaved?: (projectId: string) => Promise<void>;
   cloudError: string | null = null;
@@ -121,16 +125,44 @@ export class DesignImageManager {
       throw new Error(
         "Bu ekran sürümü için ilk üretim ve iki yeniden deneme hakkı kullanıldı.",
       );
+    const references = designGenerationReferences(
+      project,
+      this.list(project.id),
+      screenId,
+    );
+    if (project.designDraftApprovals?.revision === spec.revision) {
+      for (const id of project.designDraftApprovals.assetIds) {
+        const reference = this.jobs.get(id);
+        if (
+          !reference ||
+          reference.projectId !== project.id ||
+          reference.revision !== spec.revision ||
+          reference.status !== "succeeded"
+        )
+          throw new Error(
+            "Onaylı tasarım referansı bulunamadı. GitHub görsel eşitlemesini tamamlayın.",
+          );
+      }
+    }
+    const reservation = designImageReservation(references.length);
     if (
       Math.max(
         project.aiCost,
         this.otherSpend(project.id) + this.spent(project.id),
       ) +
-        imageReservationUsd >
+        reservation >
       project.budgetLimit
     )
       throw new Error("Proje bütçesi yeni görsel için yetersiz.");
-    const prompt = designImagePrompt(project, screenId, brief);
+    const prompt = designImagePrompt(
+      project,
+      screenId,
+      brief,
+      references.map((reference) => ({
+        assetId: reference.id,
+        screenName: reference.screenName,
+      })),
+    );
     const job: DesignImageJob = {
       id: requestId,
       projectId: project.id,
@@ -141,7 +173,7 @@ export class DesignImageManager {
       status: "running",
       costUsd: 0,
       uncertainCostUsd: 0,
-      reservedUsd: imageReservationUsd,
+      reservedUsd: reservation,
       error: null,
       createdAt: new Date(
         Math.max(
@@ -150,22 +182,52 @@ export class DesignImageManager {
         ),
       ).toISOString(),
       model: imageModel,
+      referenceAssetIds: references.map((reference) => reference.id),
     };
     this.locked = true;
+    const referenceImages: DesignImageReference[] = [];
     try {
+      for (const reference of references) {
+        const file = path.join(
+          this.root,
+          "workspace/design-images",
+          reference.id + ".png",
+        );
+        let png: Buffer;
+        try {
+          const info = await lstat(file);
+          if (!info.isFile() || info.isSymbolicLink() || info.size > 20_000_000)
+            throw new Error("Invalid reference");
+          png = await readFile(file);
+          validateDesignPng(png);
+        } catch {
+          throw new Error(
+            "Onaylı tasarım PNG dosyası eksik veya geçersiz. GitHub görsel eşitlemesini tamamlayın.",
+          );
+        }
+        referenceImages.push({
+          assetId: reference.id,
+          screenName: reference.screenName,
+          png,
+        });
+      }
       await this.persist(job);
       this.jobs.set(job.id, job);
     } catch (e) {
       this.locked = false;
       throw e;
     }
-    void this.execute(job, prompt);
+    void this.execute(job, prompt, referenceImages);
     return job;
   }
-  private async execute(job: DesignImageJob, prompt: string) {
+  private async execute(
+    job: DesignImageJob,
+    prompt: string,
+    references: DesignImageReference[],
+  ) {
     let accounted = false;
     try {
-      const result = await this.run(prompt, this.key);
+      const result = await this.run(prompt, this.key, undefined, references);
       if (result.costUsd === null) job.uncertainCostUsd = job.reservedUsd;
       else job.costUsd = result.costUsd;
       accounted = true;

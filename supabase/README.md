@@ -13,6 +13,7 @@ Yönetici hesabınızı önceden eklediyse **Hesap ve bulut kaydı → E-posta i
 ## Bir defalık kurulum
 
 1. Supabase SQL Editor'da `migrations/202609250001_projects.sql` dosyasını çalıştırın. Tablolar, RLS politikaları ve sürüm kontrollü kayıt fonksiyonu birlikte oluşturulur.
+   Ardından `migrations/202609270001_project_deletion.sql` dosyasını uygulayın. Bu migration çalışma alanı üyelerinin proje silmesini ve silinen kimliklerin eski sekmelerden yeniden kaydedilmesini engelleyen denetimi ekler. Mevcut kurulumlarda yalnızca yeni migration gerekir. Silme RPC'si bulunmadığında proje silme işlemi dış kaynaklara dokunmadan hata verir.
 2. Her bilgisayarda kök `.env` veya `apps/web/.env.local` içine aynı `NEXT_PUBLIC_SUPABASE_URL` ve `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` değerlerini yazın. Web sunucusunu yeniden başlatın; production kullanımında `pnpm build` tekrar gereklidir. Service-role anahtarını ekip üyelerine dağıtmayın; normal kullanım bu anahtarı gerektirmez.
 3. App Factory'de **Hesap ve bulut kaydı → Hesap oluştur** alanını kullanın. Supabase e-posta doğrulaması açıksa e-postayı doğrulayın. Supabase Auth URL Configuration'da yerel `http://127.0.0.1:3000` / `http://localhost:3000` adreslerini tanımlayın.
 4. Yönetici SQL Editor'da bir çalışma alanı oluşturup üç hesabı üye yapar. Aşağıdaki örnek adresleri değiştirin; üç kullanıcı da önce kayıt olmuş olmalıdır:

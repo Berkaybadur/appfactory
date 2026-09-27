@@ -23,6 +23,74 @@ function repository() {
   return { repo, rows };
 }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("deletion fences writes, retains the card on failure, and retries before forgetting pending data", async () => {
+  const { repo, rows } = repository();
+  const doc = { id: "one", title: "delete me" };
+  rows.set("one", { document: doc, version: 1 });
+  rows.set("two", { document: { id: "two", title: "keep" }, version: 1 });
+  const steps: string[] = [];
+  repo.deleteProject = async (document, finish) => {
+    steps.push(finish ? "finish" : "prepare");
+    if (finish) rows.delete(document.id);
+  };
+  let visible: Doc[] = [];
+  const sync = new ProjectSync(
+    repo,
+    [],
+    () => {},
+    (projects) => {
+      visible = projects;
+    },
+  );
+  await sync.refresh();
+  await assert.rejects(
+    sync.deleteProject(doc, async () => {
+      throw new Error("GitHub denied");
+    }),
+    /GitHub denied/,
+  );
+  assert.equal(visible.length, 2);
+  assert.deepEqual(steps, ["prepare"]);
+  await sync.deleteProject(doc, async () => {
+    steps.push("cleanup");
+    assert.throws(() => sync.enqueue([doc]), /silme/);
+  });
+  assert.deepEqual(steps, ["prepare", "prepare", "cleanup", "finish"]);
+  sync.enqueue([doc]);
+  await settle();
+  assert.deepEqual(
+    visible.map((item) => item.id),
+    ["two"],
+  );
+  assert.equal(rows.has("one"), false);
+});
+
+test("completed remote deletion drops an offline outbox before it can be uploaded", async () => {
+  const { repo } = repository();
+  repo.deletedIds = async () => ["one"];
+  let saves = 0;
+  repo.save = async () => {
+    saves++;
+    throw new Error("must not upload");
+  };
+  let pending: PendingProject<Doc>[] = [];
+  let visible: Doc[] = [];
+  const sync = new ProjectSync(
+    repo,
+    [{ document: { id: "one", title: "stale" }, expectedVersion: 0 }],
+    (items) => {
+      pending = items;
+    },
+    (items) => {
+      visible = items;
+    },
+  );
+  await sync.refresh();
+  assert.equal(saves, 0);
+  assert.deepEqual(pending, []);
+  assert.deepEqual(visible, []);
+});
 test("periodic refresh retains loaded projects without returning to the initial loading state", async () => {
   const { repo, rows } = repository();
   const document = { id: "one", title: "initial" };

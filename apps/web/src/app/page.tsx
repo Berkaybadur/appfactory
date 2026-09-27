@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { DeleteProjectButton } from "@/components/delete-project-button";
 import {
   ArrowUpRight,
   Smartphone,
@@ -78,12 +79,14 @@ export default function Dashboard() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {sorted.map((project) => (
-            <Link
+            <Card
               key={project.id}
-              href={`/projects/${project.id}`}
-              className="rounded-xl outline-offset-4"
+              className="h-full shadow-none hover:border-neutral-400"
             >
-              <Card className="h-full shadow-none hover:border-neutral-400">
+              <Link
+                href={`/projects/${project.id}`}
+                className="block rounded-xl outline-offset-4"
+              >
                 <CardContent className="pt-6">
                   <div className="mb-5 flex justify-between">
                     <span className="rounded-lg border bg-muted/50 p-2.5">
@@ -131,8 +134,9 @@ export default function Dashboard() {
                     </time>
                   </div>
                 </CardContent>
-              </Card>
-            </Link>
+              </Link>
+              <DeleteProjectButton project={project} />
+            </Card>
           ))}
         </div>
       )}

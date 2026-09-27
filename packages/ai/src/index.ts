@@ -181,6 +181,7 @@ export {
   generateDesignImage,
   imageModel,
   imageReservationUsd,
+  type DesignImageReference,
 } from "./design-images";
 export {
   runBuilder,

@@ -10,15 +10,15 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "tsx": "^4.21.0",
     "@types/node": "^22.19.0",
-    "typescript": "~5.9.3",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3"
   },
   "dependencies": {
+    "@app-factory/ai": "workspace:*",
     "@app-factory/generator": "workspace:*",
     "@app-factory/schemas": "workspace:*",
-    "zod": "^4.3.6",
-    "@app-factory/ai": "workspace:*"
+    "zod": "^4.3.6"
   }
 }

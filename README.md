@@ -116,9 +116,11 @@ Planner, OpenAI Responses API üzerinden `gpt-4.1-mini-2025-04-14` modelini ve S
 Tasarım sayfasının ana görünümü artık AI görsel galerisidir. Seçili her ekran için tasarım yönü ve isteğe bağlı değişiklik talebiyle bir PNG üretilir. Ekranlar kod veya şablon etkileşimleri üzerinden değil, görsel taslaklar üzerinden onaylanır. Önceki şablon önizlemesi kapalı bir ayrıntı bölümünde durur.
 
 - Worker mevcut OPENAI_API_KEY ile Image API kullanır. GPT Image 2, medium kalite, 1024×1536 PNG; ekran başına tek çağrı. Model erişimi/kuruluş doğrulaması hesapta gerekli olabilir.
-- Her çağrıda $0.20 yerel bütçe rezervi ayrılır. Bu, sağlayıcının kesin fatura limiti değildir; sabit boyut/kalite ve sınırlı girdi için koruyucu rezervdir. Kullanım tokenlarından maliyet hesaplanır; belirsiz sonuçlarda rezerv harcanmış kabul edilir. Proje bütçesi ve Planner harcaması birlikte kontrol edilir. [Resmî fiyatlandırma](https://developers.openai.com/api/docs/pricing) ve [görsel üretim rehberi](https://developers.openai.com/api/docs/guides/image-generation).
-- Bir ekranın aynı proje sürümünde ilk üretim + iki manuel yeniden üretim hakkı vardır. Otomatik tekrar yoktur. Değişiklik isteği yeni bir taslak üretir; önceki görsel üzerinde piksel düzenlemesi yapmaz. Ayrı ekranların birebir stil tutarlılığı garanti edilmez; ortak tasarım yönü ve palet kullanılır.
-- Görseller ve iş kayıtları workspace/design-images içinde tutulur. Sayfa yenileme yeniden ücretli çağrı başlatmaz. Önceki dosyalar korunur. Kayıtlar Git’e eklenmez.
+- Her çağrıda $0.20 ve onaylı referans başına ek $0.05 yerel bütçe rezervi ayrılır; toplam düğmede gösterilir. Bu, sağlayıcının kesin fatura limiti değildir. Metin ve görsel girdi tokenları ayrı fiyatlarla hesaplanır; kullanım ayrıntıları eksikse rezerv belirsiz harcama olarak korunur. Proje bütçesi ve Planner harcaması birlikte kontrol edilir. [Resmî fiyatlandırma](https://developers.openai.com/api/docs/pricing) ve [görsel üretim rehberi](https://developers.openai.com/api/docs/guides/image-generation).
+- Ekran bazındaki onaylar proje kaydında saklanır. Ana sayfa onaylandıktan sonra Ayarlar onu; Ayarlar da onaylandıktan sonra Kayıt ekranı ikisini referans alır. Üretimde onaylı Ana sayfa ve onay sırasına göre son iki güncel diğer ekran kullanılır; en fazla üç benzersiz PNG gönderilir. Diğer ekranların onayları proje kaydında korunur. Onaylanmamış, devre dışı, eski sürüme ait veya yeniden üretilmiş bir ekranın eski taslağı kullanılmaz. Üretilen ekranın kendisi referans listesinden çıkarılır.
+- İlk görsel metinden üretilir; referans varsa onaylı PNG dosyaları [Images Edits API](https://developers.openai.com/api/reference/resources/images/methods/edit) isteğine eklenir. Renk, tipografi, ikonlar, boşluklar, butonlar ve ortak gezinme bileşenlerinin korunması istenir. Üçten fazla referans API çağrısından önce reddedilir; tüm ekranları içeren pafta oluşturulmaz. Görsel iş kaydı kullanılan referans kimliklerini içerir. Eksik referans dosyası ücretli istekten önce hata verir.
+- Bir ekranın aynı proje sürümünde ilk üretim + iki manuel yeniden üretim hakkı vardır. Otomatik tekrar yoktur. Değişiklik isteği yeni bir taslak üretir; önceki dosyalar korunur. Referans kullanımı tutarlılığı yönlendirir; sonuçlar yine kullanıcı tarafından incelenip onaylanır.
+- Görseller ve iş kayıtları workspace/design-images içinde tutulur ve projenin private GitHub deposuyla paylaşılır (bkz. GITHUB-SYNC.md). Sayfa yenileme yeniden ücretli çağrı başlatmaz.
 - Her ekranın en güncel başarılı görseli incelenmeden toplu onay verilemez. Onay kaynak görsel kimliklerini kaydeder, proje sürümünü artırır ve geliştirmeyi açar. Proje değişince eski görsel onayı geçersiz kalır.
 - Onaylanan görseller Expo çıktısındaki design-references klasörüne ve proje belleğine referans olarak aktarılır. **Geliştirme sayfasındaki Builder bu görselleri referans alır.** Görsel üzerindeki metin ve ikonlar da uygulama kodu değildir.
 
@@ -170,6 +172,12 @@ Kaynaklar: https://developers.openai.com/api/docs/models/gpt-6-luna ve https://d
 ### Üretilen uygulamaların GitHub paylaşımı
 
 Builder çıktıları ve görev kayıtları private GitHub depolarına otomatik gönderilebilir; başka bilgisayarda indirilip yerel kontrollerden geçirilerek devam edilir. Kurulum, PAT izinleri, çakışma davranışı ve kapsam için [GitHub paylaşım rehberi](GITHUB-SYNC.md).
+
+### Proje silme
+
+Tüm projeler listesindeki **Projeyi sil** düğmesi proje adını yazarak onay ister. Projenin bu bilgisayardaki üretilen dosyaları, görselleri, geçmiş sürümleri, iş/önizleme/derleme kayıtları, tarayıcı kopyaları, ortak Supabase proje kaydı (varsa eski görsel kayıtlarıyla birlikte) ve `GITHUB_OWNER/appfactory-<proje-id>` deposu kalıcı olarak silinir. Başka projeler, ekip üyelikleri ve çalışma alanı silinmez. Diğer bilgisayarlardaki indirilmiş dosyalar, dışa aktarılmış yedekler ve Expo hizmetindeki derlemeler bu bilgisayardan silinmez.
+
+Önce [silme migration dosyasını](supabase/migrations/202609270001_project_deletion.sql) Supabase SQL Editor'da uygulayın; worker'ı yeniden başlatın. GitHub PAT, repo silme yetkisine sahip olmalıdır (fine-grained: Administration write; classic: delete_repo). Devam eden üretim/aktarım veya açık Expo önizlemesi varsa önce tamamlayın/durdurun. İşlem kısmen başarısız olursa kart korunur; aynı düğmeyle tekrar deneyin. Eski sekmelerin veriyi yeniden oluşturmasını engellemek için yalnızca proje kimliğini içeren silme işaretleri saklanır. Supabase kurulumu yoksa bulut kaydı silme adımı uygulanmaz.
 
 ### Veri modeli görevlerinde hedefli onarım
 

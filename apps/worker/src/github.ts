@@ -188,12 +188,40 @@ export class GithubSync {
     } catch {
       throw new Error("GitHub bağlantısı kurulamadı. Yerel çıktı korundu.");
     }
-    if (missing && r.status === 404) return null;
+    if (missing && r.status === 404) {
+      if (method === "DELETE") {
+        // A private repo without token access also returns 404. Only a classic
+        // token with full repo visibility can prove absence from this response.
+        const scopes = (r.headers.get("x-oauth-scopes") ?? "")
+          .split(",")
+          .map((scope) => scope.trim());
+        if (!scopes.includes("repo") || !scopes.includes("delete_repo"))
+          throw new Error(
+            "Depo bulunamadı veya token depoyu göremiyor. Silindiği doğrulanamadı; repo erişimini kontrol edin. Hiç oluşturulmamış depolar için repo ve delete_repo kapsamlı classic PAT kullanın.",
+          );
+      }
+      return null;
+    }
     if (!r.ok)
       throw new Error(
         `GitHub işlemi başarısız (HTTP ${r.status}). PAT ve repo izinlerini kontrol edin; uzak sürüm değişmişse önce indirin.`,
       );
-    return r.json();
+    return r.status === 204 ? null : r.json();
+  }
+  async deleteProject(id: string) {
+    if (this.busy) throw new Error("GitHub işleminin bitmesini bekleyin.");
+    this.busy = true;
+    try {
+      await this.api(this.route(id), "DELETE", undefined, true);
+      this.status.delete(id);
+    } catch (error) {
+      throw new Error(
+        "GitHub deposu silinemedi. PAT için Administration: write (classic PAT: delete_repo) iznini kontrol edin. " +
+          (error instanceof Error ? error.message : ""),
+      );
+    } finally {
+      this.busy = false;
+    }
   }
   private async repo(id: string, create = false) {
     const route = this.route(id);
@@ -490,13 +518,11 @@ export class GithubSync {
             sha: blob.sha,
           });
         }
-        const tree = z
-          .object({ sha: shaSchema })
-          .parse(
-            await this.api(`${repo.route}/git/trees`, "POST", {
-              tree: entries,
-            }),
-          );
+        const tree = z.object({ sha: shaSchema }).parse(
+          await this.api(`${repo.route}/git/trees`, "POST", {
+            tree: entries,
+          }),
+        );
         const base =
           ref ??
           refSchema.parse(

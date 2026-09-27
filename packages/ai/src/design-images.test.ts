@@ -65,3 +65,78 @@ test("image errors are safe and never retry automatically", async () => {
   );
   assert.throws(() => designImagePrompt(project, "register", ""), /Seçili/);
 });
+
+test("approved screens are sent as PNG reference inputs and image tokens use image pricing", async () => {
+  const png = Buffer.alloc(24);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
+  png.writeUInt32BE(1024, 16);
+  png.writeUInt32BE(1536, 20);
+  const references = [
+    { assetId: "home", screenName: "Ana sayfa", png },
+    { assetId: "settings", screenName: "Ayarlar", png },
+  ];
+  const prompt = designImagePrompt(
+    project,
+    "home",
+    "Tutarlı tasarım",
+    references.map(({ assetId, screenName }) => ({ assetId, screenName })),
+  );
+  assert.ok(prompt.includes("at most the two most recently approved"));
+  assert.ok(prompt.includes("Ana sayfa") && prompt.includes("Ayarlar"));
+  const result = await generateDesignImage(
+    prompt,
+    "test",
+    async (url, init) => {
+      assert.equal(url, "https://api.openai.com/v1/images/edits");
+      assert.equal(new Headers(init?.headers).get("Content-Type"), null);
+      assert.ok(init?.body instanceof FormData);
+      assert.equal(init.body.get("model"), "gpt-image-2");
+      assert.equal(init.body.get("prompt"), prompt);
+      const images = init.body.getAll("image[]") as File[];
+      assert.equal(images.length, 2);
+      assert.deepEqual(Buffer.from(await images[0]!.arrayBuffer()), png);
+      return Response.json({
+        data: [{ b64_json: png.toString("base64") }],
+        usage: {
+          input_tokens: 3000,
+          output_tokens: 1000,
+          input_tokens_details: { text_tokens: 1000, image_tokens: 2000 },
+        },
+      });
+    },
+    references,
+  );
+  assert.equal(result.costUsd, 0.0255);
+  const unknown = await generateDesignImage(
+    prompt,
+    "test",
+    async () =>
+      Response.json({
+        data: [{ b64_json: png.toString("base64") }],
+        usage: { input_tokens: 3000, output_tokens: 1000 },
+      }),
+    references,
+  );
+  assert.equal(unknown.costUsd, null);
+});
+
+test("more than three references are rejected before a paid API request", async () => {
+  let calls = 0;
+  await assert.rejects(
+    generateDesignImage(
+      "test",
+      "test",
+      async () => {
+        calls++;
+        return Response.json({});
+      },
+      Array.from({ length: 4 }, (_, index) => ({
+        assetId: String(index),
+        screenName: String(index),
+        png: Buffer.from("fixture"),
+      })),
+    ),
+    /En fazla 3/,
+  );
+  assert.equal(calls, 0);
+});

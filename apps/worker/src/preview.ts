@@ -106,6 +106,19 @@ function terminate(child: ChildProcess) {
   }
 }
 export class PreviewManager {
+  assertDeletable(projectId: string) {
+    if (
+      this.busy ||
+      (this.session?.projectId === projectId &&
+        ["starting", "ready"].includes(this.session.status))
+    )
+      throw new Error("Önce açık Expo önizlemesini durdurun.");
+  }
+  forget(projectId: string) {
+    for (const [id, approval] of this.approvals)
+      if (approval.projectId === projectId) this.approvals.delete(id);
+    if (this.session?.projectId === projectId) this.session = null;
+  }
   private session: PreviewSession | null = null;
   private child: ChildProcess | null = null;
   private busy = false;

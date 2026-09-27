@@ -9,6 +9,11 @@ import {
 } from "react";
 import { ProjectSync, type PendingProject } from "@app-factory/database";
 import { supabase, projectRepository } from "@/lib/cloud-projects";
+import {
+  PROJECTS_KEY,
+  deletedProjectIds,
+  forgetBrowserProject,
+} from "@/lib/project-storage";
 import { projectSchema } from "@app-factory/schemas";
 import {
   projectInputSchema,
@@ -26,22 +31,31 @@ import {
   type Project,
   type ProjectInput,
   type GenerationJob,
+  type DesignImageJob,
+  approvedDesignReferences,
 } from "@app-factory/schemas";
 import {
   mockProjects,
   transition,
   type WorkflowEvent,
 } from "@app-factory/shared";
-const KEY = "app-factory.projects.v1";
+const KEY = PROJECTS_KEY;
+let deletingProject = false;
+const retainedProjects = (projects: Project[]) => {
+  const deleted = deletedProjectIds(localStorage);
+  return projects.filter((project) => !deleted.has(project.id));
+};
 type Snapshot = { projects: Project[]; ready: boolean; error: string | null };
 type Store = Snapshot & {
   cloud: CloudState;
+  deleteProject: (id: string, confirmation: string) => Promise<void>;
   importLocalProjects: () => void;
   retryCloud: () => void;
   downloadPending: () => void;
   loadCloudVersion: () => Promise<void>;
   restoreLocalProject: (id: string) => Promise<void>;
   applyImageApproval: (project: Project, expectedRevision: number) => void;
+  approveDraftImage: (job: DesignImageJob, jobs: DesignImageJob[]) => void;
   syncImageCost: (id: string, cost: number) => void;
   applyPlanner: (job: PlannerJob) => void;
   syncPlannerCost: (job: PlannerJob) => void;
@@ -132,6 +146,9 @@ function currentProjects() {
     : snapshot.projects;
 }
 function persistProjects(projects: Project[]) {
+  if (deletingProject)
+    throw new Error("Proje silme işleminin bitmesini bekleyin.");
+  projects = retainedProjects(projects);
   if (
     supabase &&
     (cloud.status === "loading" || (cloud.userId && !cloudLoaded))
@@ -189,7 +206,9 @@ async function activateCloud(user: { id: string; email?: string } | null) {
       };
     });
     sync = new ProjectSync(
-      projectRepository(ownerId),
+      projectRepository(ownerId, (id) =>
+        forgetBrowserProject(localStorage, id),
+      ),
       pending,
       (items) =>
         localStorage.setItem(outboxKey(ownerId), JSON.stringify(items)),
@@ -201,7 +220,11 @@ async function activateCloud(user: { id: string; email?: string } | null) {
           status !== "refreshing"
         )
           cloudLoaded = true;
-        snapshot = { projects, ready: true, error: null };
+        snapshot = {
+          projects: retainedProjects(projects),
+          ready: true,
+          error: null,
+        };
         setCloud({ status, error: error ?? null, progress });
       },
     );
@@ -282,7 +305,7 @@ function localizeDemoProjects(projects: Project[]): Project[] {
       idea: "Track pantry items and expiry dates, then create a shopping list for missing essentials.",
     },
   };
-  return projects.map((project) => {
+  return retainedProjects(projects).map((project) => {
     const old = legacy[project.id];
     const seed = mockProjects.find((item) => item.id === project.id);
     if (!old || !seed) return project;
@@ -302,13 +325,13 @@ function initialize() {
         ? localizeDemoProjects(
             storedProjectsSchema.parse(JSON.parse(raw)).projects,
           )
-        : mockProjects,
+        : retainedProjects(mockProjects),
       ready: true,
       error: null,
     };
   } catch {
     snapshot = {
-      projects: mockProjects,
+      projects: retainedProjects(mockProjects),
       ready: true,
       error:
         "Kayıtlı veriler yüklenemedi. Demo projeler gösteriliyor; kaydetmek okunamayan verilerin üzerine yazabilir.",
@@ -316,6 +339,11 @@ function initialize() {
   }
 }
 function synchronize(event: StorageEvent) {
+  if (event.key === KEY + ".deleted") {
+    snapshot = { ...snapshot, projects: retainedProjects(snapshot.projects) };
+    emit();
+    return;
+  }
   if (cloud.userId) return;
   if (event.key !== KEY) return;
   try {
@@ -324,7 +352,7 @@ function synchronize(event: StorageEvent) {
         ? localizeDemoProjects(
             storedProjectsSchema.parse(JSON.parse(event.newValue)).projects,
           )
-        : mockProjects,
+        : retainedProjects(mockProjects),
       ready: true,
       error: null,
     };
@@ -344,6 +372,48 @@ function subscribe(listener: () => void) {
 }
 function save(projects: Project[]) {
   persistProjects(projects);
+}
+async function deleteProject(id: string, confirmation: string) {
+  const project = currentProjects().find((item) => item.id === id);
+  if (!project || confirmation !== project.name)
+    throw new Error("Proje adını eksiksiz yazın.");
+  if (deletingProject) throw new Error("Silme işleminin bitmesini bekleyin.");
+  if (supabase && (!cloud.userId || !cloudLoaded || !sync))
+    throw new Error("Önce bulut hesabına giriş yapıp projeleri yükleyin.");
+  const ownerId = cloud.userId;
+  const worker = async (action: "check" | "delete") => {
+    const response = await fetch("/api/projects/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project, confirmation, action }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.ok !== true)
+      throw new Error(data.error ?? "Silme işlemi tamamlanamadı.");
+  };
+  deletingProject = true;
+  try {
+    await worker("check");
+    if (ownerId !== cloud.userId) throw new Error("Oturum değişti.");
+    if (ownerId && sync)
+      await sync.deleteProject(project, () => worker("delete"));
+    else await worker("delete");
+    forgetBrowserProject(localStorage, id);
+    // Persist even an empty local collection so demo projects cannot reappear.
+    const raw = localStorage.getItem(KEY);
+    if (!raw)
+      localStorage.setItem(
+        KEY,
+        JSON.stringify({
+          version: 1,
+          projects: retainedProjects(snapshot.projects),
+        }),
+      );
+    snapshot = { ...snapshot, projects: retainedProjects(snapshot.projects) };
+    emit();
+  } finally {
+    deletingProject = false;
+  }
 }
 function create(input: ProjectInput) {
   const validated = projectInputSchema.parse(input);
@@ -516,6 +586,31 @@ function applyPlanner(job: PlannerJob) {
   );
   persistProjects(next);
 }
+function approveDraftImage(job: DesignImageJob, jobs: DesignImageJob[]) {
+  const projects = currentProjects();
+  const project = projects.find((item) => item.id === job.projectId);
+  if (
+    !project ||
+    getSpecification(project).revision !== job.revision ||
+    job.status !== "succeeded"
+  )
+    throw new Error("Güncel görseli inceleyip onaylayın.");
+  const existing = approvedDesignReferences(project, jobs, job.screenId);
+  persistProjects(
+    projects.map((item) =>
+      item.id === project.id
+        ? {
+            ...item,
+            designDraftApprovals: {
+              revision: job.revision,
+              assetIds: [...existing.map((reference) => reference.id), job.id],
+            },
+            updatedAt: new Date().toISOString(),
+          }
+        : item,
+    ),
+  );
+}
 function applyImageApproval(approved: Project, expectedRevision: number) {
   const projects = currentProjects();
   const current = projects.find((p) => p.id === approved.id);
@@ -575,6 +670,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       value={{
         ...state,
         cloud,
+        deleteProject,
         importLocalProjects,
         retryCloud,
         downloadPending,
@@ -591,6 +687,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         applyPlanner,
         syncPlannerCost,
         applyImageApproval,
+        approveDraftImage,
         syncImageCost,
       }}
     >

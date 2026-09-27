@@ -9,6 +9,9 @@ import {
   projectSchema,
   type DesignImageJob,
   type Project,
+  approvedDesignReferences,
+  designGenerationReferences,
+  designImageReservation,
 } from "@app-factory/schemas";
 import { useProjects } from "./project-provider";
 import { Button } from "./ui/button";
@@ -19,7 +22,8 @@ import { SpecificationEditor } from "./specification-editor";
 import { OperationProgress } from "./operation-progress";
 import { MobilePreview } from "./mobile-preview";
 export function DesignGallery({ project }: { project: Project }) {
-  const { applyImageApproval, syncImageCost } = useProjects();
+  const { applyImageApproval, approveDraftImage, syncImageCost } =
+    useProjects();
   const spec = getSpecification(project);
   const screens = getScreens(spec).filter((s) => s.enabled);
   const [recovering, setRecovering] = useState(false);
@@ -39,7 +43,7 @@ export function DesignGallery({ project }: { project: Project }) {
     "Modern, özgün ve premium bir mobil deneyim. Güçlü tipografi, dengeli boşluklar ve fikre özel görsel bir kimlik. Sıradan yönetim paneli görünümünden uzaklaş.",
   );
   const [feedback, setFeedback] = useState<Record<string, string>>({});
-  const [reviewed, setReviewed] = useState<string[]>([]);
+  const reviewed = approvedDesignReferences(project, jobs).map((job) => job.id);
   const [loaded, setLoaded] = useState<string[]>([]);
   useEffect(() => {
     let active = true;
@@ -178,14 +182,20 @@ export function DesignGallery({ project }: { project: Project }) {
           className="min-h-24"
         />
         <p className="text-xs leading-5 text-muted-foreground">
-          Görsel başına $0.20 bütçe ayrılır; gerçek kullanım ayrıca hesaplanır.
-          Her ekran sürümünde ilk üretim + en fazla iki manuel yeniden üretim.
-          Otomatik tekrar yoktur. Üretim birkaç dakika sürebilir.
+          Görsel için $0.20, her onaylı referans için ek $0.05 bütçe ayrılır;
+          gerçek kullanım ayrıca hesaplanır. Her ekran sürümünde ilk üretim + en
+          fazla iki manuel yeniden üretim. Otomatik tekrar yoktur. Üretim birkaç
+          dakika sürebilir.
         </p>
         <p className="text-xs leading-5 text-muted-foreground">
           Bunlar tasarım referanslarıdır; henüz çalışan uygulama değildir.
           Onaylanan görseller Geliştirme aşamasında Builder tarafından Expo
           ekranlarına dönüştürülür. Görsel uyum ve cihaz testi ayrıca incelenir.
+        </p>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Yeni tasarımlar onaylı Ana sayfayı ve son iki onaylı diğer ekranı
+          referans alır (en fazla 3 görsel). Renkler, tipografi, butonlar ve
+          gezinme düzeni birlikte korunur.
         </p>
         {!enabled && !loading && (
           <p className="text-sm">
@@ -320,12 +330,21 @@ export function DesignGallery({ project }: { project: Project }) {
                         reviewed.includes(displayed.id) ||
                         busy
                       }
-                      onClick={() =>
-                        setReviewed((ids) => [...ids, displayed.id])
-                      }
+                      onClick={() => {
+                        try {
+                          approveDraftImage(displayed, jobs);
+                          setError("");
+                        } catch (error) {
+                          setError(
+                            error instanceof Error
+                              ? error.message
+                              : "Onay kaydedilemedi.",
+                          );
+                        }
+                      }}
                     >
                       {reviewed.includes(displayed.id)
-                        ? "Görsel incelendi"
+                        ? "Görsel onaylandı"
                         : "Bu görseli onaylıyorum"}
                     </Button>
                   )}
@@ -351,7 +370,20 @@ export function DesignGallery({ project }: { project: Project }) {
                   >
                     {latest ? "Yeni taslak üret" : "Görsel taslak üret"} ·{" "}
                     {history.length}/3
+                    {" · $" +
+                      designImageReservation(
+                        designGenerationReferences(project, jobs, screen.id)
+                          .length,
+                      ).toFixed(2)}
                   </Button>
+                  <p className="text-xs text-muted-foreground">
+                    {designGenerationReferences(project, jobs, screen.id).length
+                      ? "Yeni taslak için onaylı referanslar: " +
+                        designGenerationReferences(project, jobs, screen.id)
+                          .map((job) => job.screenName)
+                          .join(", ")
+                      : "İlk onaylanan ekran, sonraki tasarımların görsel dilini belirleyecek."}
+                  </p>
                   {(operation === screen.id || latest) && (
                     <OperationProgress
                       value={

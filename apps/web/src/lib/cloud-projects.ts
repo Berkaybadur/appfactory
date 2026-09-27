@@ -10,7 +10,10 @@ export const supabase = createSupabaseClient({
   publishableKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
 });
 
-export function projectRepository(ownerId: string): ProjectRepository<Project> {
+export function projectRepository(
+  ownerId: string,
+  onDeleted?: (id: string) => void,
+): ProjectRepository<Project> {
   const client = supabase!;
   let workspaceId: string | null = null;
   async function workspace() {
@@ -31,6 +34,36 @@ export function projectRepository(ownerId: string): ProjectRepository<Project> {
     return workspaceId;
   }
   return {
+    async deletedIds() {
+      const { data, error } = await client
+        .from("factory_project_deletions")
+        .select("id")
+        .eq("workspace_id", await workspace())
+        .eq("completed", true);
+      if (error?.code === "42P01" || error?.code === "PGRST205") return [];
+      if (error)
+        throw new Error(
+          "Silme denetimi okunamadı. Supabase bağlantısını kontrol edin.",
+        );
+      const ids = data.map((row) => row.id as string);
+      ids.forEach((id) => onDeleted?.(id));
+      return ids;
+    },
+    async deleteProject(document, finish) {
+      const { data: session } = await client.auth.getSession();
+      if (session.session?.user.id !== ownerId)
+        throw new Error("Oturum değişti; silme durduruldu.");
+      const { error } = await client.rpc("delete_factory_project", {
+        target_workspace: await workspace(),
+        target_id: document.id,
+        confirmation: document.name,
+        finish,
+      });
+      if (error)
+        throw new Error(
+          "Supabase silme işlemi tamamlanamadı. Bağlantıyı, güncel proje adını ve 202609270001_project_deletion.sql migration kurulumunu kontrol edip silmeyi yeniden deneyin.",
+        );
+    },
     async list() {
       const { data, error } = await client
         .from("factory_projects")
