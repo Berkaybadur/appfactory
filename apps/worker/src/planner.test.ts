@@ -152,7 +152,7 @@ test("overview changes cannot replace a running analysis", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
-test("budget, missing key and retry cap prevent paid requests", async () => {
+test("budget and missing key prevent paid requests; manual retries are not capped", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "planner-limits-"));
   try {
     let calls = 0;
@@ -170,12 +170,16 @@ test("budget, missing key and retry cap prevent paid requests", async () => {
       /bütçesi/,
     );
     assert.equal(calls, 0);
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       await manager.start(project, i > 0);
       await finished(manager);
     }
-    await assert.rejects(manager.start(project, true), /iki yeniden/);
-    assert.equal(calls, 3);
+    assert.equal(calls, 4);
+    await assert.rejects(
+      manager.start({ ...project, budgetLimit: 0.01 }, true),
+      /bütçesi/,
+    );
+    assert.equal(calls, 4);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

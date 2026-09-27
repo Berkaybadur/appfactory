@@ -177,7 +177,6 @@ export function BuilderPanel({
     }
   }
   const stale = job && !sameSpecification(project, job.project);
-  const exhausted = job && !job.installed && job.setupAttempts >= 3;
   const busy = job?.status === "running";
   return (
     <div className="space-y-5">
@@ -211,11 +210,10 @@ export function BuilderPanel({
               gösterilir.
             </p>
             <p className="text-sm text-muted-foreground">
-              Ortak işlevler ve her ekran için görev başına en fazla $0.24; her
-              denemede $0.08 bütçe ayrılır. İlk başarısızlıktan sonra en fazla
-              iki otomatik tekrar yapılır. Sonrasında model seçip bir ek
-              denemeyi onaylayabilirsiniz. Bütçe sınırına ulaşılırsa işlem
-              durur.
+              Her denemede $0.08 bütçe ayrılır. İlk başarısızlıktan sonra en
+              fazla iki otomatik tekrar yapılır. Sonrasında model seçip
+              istediğiniz kadar ek deneme onaylayabilirsiniz. Proje bütçesi
+              dolunca işlem durur.
             </p>
             <p className="text-sm text-muted-foreground">
               Yerel özellikler ve desteklenen servis bağlantıları fikrinize göre
@@ -268,7 +266,6 @@ export function BuilderPanel({
                 <p className="text-xs text-muted-foreground">
                   Seçilen model yalnızca başarısız görev için kullanılır.
                   Harcanan maliyet korunur; bir ek deneme için $0.08 ayrılır.
-                  Görev sınırı $0.24.
                 </p>
                 <label className="flex gap-2 text-sm">
                   <input
@@ -291,7 +288,6 @@ export function BuilderPanel({
                 sending ||
                 busy ||
                 job?.status === "ready" ||
-                !!exhausted ||
                 !!stale
               }
               onClick={() => void start()}
@@ -329,15 +325,18 @@ export function BuilderPanel({
             <summary className="cursor-pointer [&>[data-slot=card-header]]:inline-grid [&>[data-slot=card-header]]:w-[calc(100%-1.5rem)] [&>[data-slot=card-header]]:px-0 [&>[data-slot=card-header]]:align-top">
               <CardHeader>
                 <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="leading-6">Üretilen uygulama işlevleri</CardTitle>
+                  <CardTitle className="leading-6">
+                    Üretilen uygulama işlevleri
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   <p className="text-sm text-muted-foreground mb-3">
                     {job.implementation.summary}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {job.implementation.checks.length} iş kuralı örneği doğrulandı.
-                    Bu kontroller cihaz ve canlı sunucu testinin yerine geçmez.
+                    {job.implementation.checks.length} iş kuralı örneği
+                    doğrulandı. Bu kontroller cihaz ve canlı sunucu testinin
+                    yerine geçmez.
                   </p>
                 </CardDescription>
               </CardHeader>

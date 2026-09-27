@@ -8,6 +8,7 @@ import {
   realpath,
   lstat,
   cp,
+  rm,
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -21,6 +22,7 @@ import {
   getSpecification,
   sameSpecification,
   revisionRequestSchema,
+  appWideScreenId,
   type BuilderJob,
   type BuilderTask,
   type Project,
@@ -33,6 +35,7 @@ import {
 import {
   runBuilder,
   runFeatureBuilder,
+  runAppRevision,
   builderReservationUsd,
   builderTaskLimitUsd,
   PlannerError,
@@ -58,6 +61,14 @@ import {
   validateApplicationCode,
   checkFeatureRules,
 } from "./feature-code";
+function lintWarning(log: string) {
+  const count = /\(0 errors?, (\d+) warnings?\)/.exec(log)?.[1];
+  return count
+    ? [
+        `ESLint ${count} uyarı verdi (hata değil); ayrıntılar Testler sayfasındaki kontrol günlüklerinde.`,
+      ]
+    : [];
+}
 export class BuilderManager {
   readonly jobs = new Map<string, BuilderJob>();
   onSettled?: (job: BuilderJob) => Promise<void>;
@@ -110,11 +121,7 @@ export class BuilderManager {
             ],
             [
               "ESLint",
-              [
-                path.join(cwd, "node_modules/eslint/bin/eslint.js"),
-                ".",
-                "--max-warnings=0",
-              ],
+              [path.join(cwd, "node_modules/eslint/bin/eslint.js"), "."],
             ],
           ] as const) {
             const check = await this.command(
@@ -159,6 +166,7 @@ export class BuilderManager {
     private command = runCommand,
     private generate = generateProject,
     private runFeatures = runFeatureBuilder,
+    private runApp = runAppRevision,
   ) {}
   list(id: string) {
     return [...this.jobs.values()]
@@ -259,32 +267,13 @@ export class BuilderManager {
     )
       throw new Error("Görev değişti. Güncel görev için yeniden onay verin.");
     if (
-      !manual &&
-      existing?.tasks.some((t) => t.status !== "ready" && t.attempts >= 3)
-    )
-      throw new Error("Ekran için iki yeniden deneme hakkı kullanıldı.");
-    if (existing && !existing.installed && existing.setupAttempts >= 3)
-      throw new Error("Kurulum deneme sınırına ulaşıldı.");
-    if (
       Math.max(project.aiCost, this.totalCost(project.id)) +
         builderReservationUsd >
       project.budgetLimit
     )
       throw new Error("Builder için proje bütçesi yetersiz.");
     await assertDesignAssets(this.root, project);
-    if (manual && failedTask) {
-      if (
-        failedTask.costUsd +
-          failedTask.uncertainCostUsd +
-          builderReservationUsd >
-        builderTaskLimitUsd + 0.000001
-      )
-        throw new Error(
-          "Görev bütçesi yetersiz. Manuel onay bütçe sınırını artırmaz.",
-        );
-      failedTask.model = manual.model;
-      failedTask.attemptLimit = Math.max(3, failedTask.attempts + 1);
-    }
+    if (manual && failedTask) failedTask.model = manual.model;
     const job: BuilderJob = existing ?? {
       mode,
       id: randomUUID(),
@@ -365,16 +354,24 @@ export class BuilderManager {
     const source = resolveSource(req.project, req.change.sourceJobId);
     if (req.requestId === source.id)
       throw new Error("Revizyon yeni bir çıktı kimliği kullanmalı.");
-    const screen = getScreens(getSpecification(source.project)).find(
-      (s) => s.id === req.change.screenId && s.enabled,
-    );
+    const appWide = req.change.screenId === appWideScreenId;
+    const screen = appWide
+      ? { id: "home" as const, name: "Uygulama geneli" }
+      : getScreens(getSpecification(source.project)).find(
+          (s) => s.id === req.change.screenId && s.enabled,
+        );
     if (!screen) throw new Error("Seçili ekran projede açık değil.");
     if (
-      prior &&
-      (prior.tasks[0]!.attempts >= 3 ||
-        (!prior.installed && prior.setupAttempts >= 3))
+      appWide &&
+      !(await lstat(
+        path.join(this.root, source.outputPath, "src/features/store.tsx"),
+      )
+        .then((info) => info.isFile())
+        .catch(() => false))
     )
-      throw new Error("İki yeniden deneme hakkı kullanıldı.");
+      throw new Error(
+        "Uygulama geneli değişiklik, ortak uygulama işlevleri üretilmiş çıktılarda kullanılabilir.",
+      );
     if (
       Math.max(req.project.aiCost, this.totalCost(req.project.id)) +
         builderReservationUsd >
@@ -394,6 +391,8 @@ export class BuilderManager {
       createdAt: new Date().toISOString(),
       tasks: [
         {
+          ...(appWide ? { kind: "app" as const } : {}),
+          ...(req.model ? { model: req.model } : {}),
           screenId: screen.id,
           name: screen.name,
           status: "pending" as const,
@@ -407,6 +406,9 @@ export class BuilderManager {
         },
       ],
     };
+    if (prior && req.model)
+      for (const task of prior.tasks)
+        if (task.status !== "ready") task.model = req.model;
     this.locked = true;
     job.status = "running";
     job.error = null;
@@ -472,6 +474,12 @@ export class BuilderManager {
       },
     });
     await assertRealDirectory(destination);
+    await writeFile(
+      path.join(destination, "eslint.config.js"),
+      await readFile(
+        path.join(this.root, "templates/expo-base/eslint.config.js"),
+      ),
+    );
     return { outputPath: path.relative(this.root, destination) };
   }
   private async checkedFile(directory: string, file: string) {
@@ -550,14 +558,7 @@ export class BuilderManager {
           "TypeScript",
           [path.join(cwd, "node_modules/typescript/bin/tsc"), "--noEmit"],
         ],
-        [
-          "ESLint",
-          [
-            path.join(cwd, "node_modules/eslint/bin/eslint.js"),
-            ".",
-            "--max-warnings=0",
-          ],
-        ],
+        ["ESLint", [path.join(cwd, "node_modules/eslint/bin/eslint.js"), "."]],
       ] as const) {
         const check = await this.command(
           process.execPath,
@@ -575,7 +576,7 @@ export class BuilderManager {
           );
       }
       task.summary = output.summary;
-      task.limitations = output.limitations;
+      task.limitations = [...output.limitations, ...lintWarning(task.log)];
       job.implementation = {
         summary: output.summary,
         files: output.files.map((file) => file.path),
@@ -608,6 +609,188 @@ export class BuilderManager {
         (error instanceof Error
           ? error.message
           : "Uygulama işlevleri üretilemedi.")
+      ).slice(-20000);
+      throw error;
+    }
+  }
+  private async executeAppRevision(
+    job: BuilderJob,
+    task: BuilderTask,
+    cwd: string,
+  ) {
+    const spec = getSpecification(job.project);
+    const enabledScreens = getScreens(spec).filter((s) => s.enabled);
+    const modules = await applicationModules(cwd);
+    let migrationSql = "";
+    try {
+      migrationSql = await readFile(
+        await this.checkedFile(cwd, "backend/migration.sql"),
+        "utf8",
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const context = JSON.stringify({
+      task: "REVISE_APPLICATION",
+      changeRequest: job.change!.instruction,
+      projectMemory: {
+        name: job.project.name,
+        idea: job.project.idea,
+        summary: spec.plan.summary,
+        scope: spec.plan.scope,
+      },
+      enabledScreens: enabledScreens.map((s) => ({
+        screenId: s.id,
+        name: s.name,
+        description: s.description,
+        file: screenFile(s.id),
+      })),
+      modules,
+      migrationSql,
+      compilerOptions: { strict: true, noUncheckedIndexedAccess: true },
+      previousDiagnostics: task.log.slice(-8000),
+    });
+    if (Buffer.byteLength(context) > 80000)
+      throw new Error("Uygulama bağlamı görev sınırını aşıyor.");
+    task.status = "running";
+    task.attempts++;
+    task.reservedUsd = builderReservationUsd;
+    await this.persist(job);
+    let accounted = false;
+    let rollback: (() => Promise<void>) | undefined;
+    try {
+      const result = await this.runApp(
+        { context, model: task.model },
+        this.key,
+      );
+      task.costUsd += result.costUsd;
+      task.reservedUsd = 0;
+      accounted = true;
+      await this.persist(job);
+      await writeFile(
+        path.join(
+          this.root,
+          "workspace/builder",
+          `${job.id}-app-${task.attempts}.txt`,
+        ),
+        JSON.stringify(result.output, null, 2),
+        { flag: "wx", mode: 0o600 },
+      );
+      const output = result.output;
+      if (new Set(output.files.map((f) => f.path)).size !== output.files.length)
+        throw new Error("Uygulama değişikliğinde yinelenen dosya var.");
+      const screenIds = new Set(enabledScreens.map((s) => s.id as string));
+      const screens = output.screens.filter((s) => screenIds.has(s.screenId));
+      if (new Set(screens.map((s) => s.screenId)).size !== screens.length)
+        throw new Error("Uygulama değişikliğinde yinelenen ekran var.");
+      if (
+        !output.files.length &&
+        output.migrationSql === null &&
+        !screens.length
+      )
+        throw new Error("Uygulama değişikliği hiçbir dosyayı etkilemiyor.");
+      for (const file of output.files)
+        validateApplicationCode(file.code, file.path);
+      if (
+        output.migrationSql !== null &&
+        (!/enable\s+row\s+level\s+security/i.test(output.migrationSql) ||
+          /\bfactory_[a-z_]+/i.test(output.migrationSql))
+      )
+        throw new Error(
+          "Migration RLS içermeli ve App Factory verilerine dokunmamalı.",
+        );
+      const writes = [
+        ...output.files,
+        ...(output.migrationSql !== null
+          ? [{ path: "backend/migration.sql", code: output.migrationSql }]
+          : []),
+      ];
+      const originals = new Map<string, string | null>();
+      rollback = async () => {
+        for (const [target, original] of originals) {
+          if (original === null) await rm(target, { force: true });
+          else await writeFile(target, original);
+        }
+      };
+      for (const file of writes) {
+        const target = path.join(cwd, file.path);
+        await mkdir(path.dirname(target), { recursive: true });
+        await assertRealDirectory(path.dirname(target));
+        try {
+          originals.set(
+            target,
+            await readFile(await this.checkedFile(cwd, file.path), "utf8"),
+          );
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          originals.set(target, null);
+        }
+        await writeFile(target, file.code + "\n");
+      }
+      task.log = "";
+      for (const [name, args] of [
+        [
+          "TypeScript",
+          [path.join(cwd, "node_modules/typescript/bin/tsc"), "--noEmit"],
+        ],
+        ["ESLint", [path.join(cwd, "node_modules/eslint/bin/eslint.js"), "."]],
+      ] as const) {
+        const check = await this.command(
+          process.execPath,
+          [...args],
+          cwd,
+          120000,
+        );
+        task.log = (
+          task.log +
+          `${name}: ${check.exitCode === 0 ? "Başarılı" : "Başarısız"}\n${check.output}\n`
+        ).slice(-20000);
+        if (check.exitCode !== 0)
+          throw new Error(
+            `Uygulama geneli değişiklik ${name} kontrolünü geçemedi. Dosyalar geri alındı.`,
+          );
+      }
+      task.summary = output.summary;
+      task.limitations = [...output.limitations, ...lintWarning(task.log)];
+      task.status = "ready";
+      const shared = output.files.map((f) => f.path).join(", ");
+      for (const item of screens) {
+        const screen = enabledScreens.find((s) => s.id === item.screenId)!;
+        job.tasks.push({
+          ...(task.model ? { model: task.model } : {}),
+          screenId: screen.id,
+          name: screen.name,
+          instruction: (
+            `Uygulama geneli istek: ${job.change!.instruction}\n` +
+            (shared ? `Güncellenen ortak modüller: ${shared}\n` : "") +
+            `Bu ekran için: ${item.instruction}`
+          ).slice(0, 4000),
+          status: "pending",
+          attempts: 0,
+          costUsd: 0,
+          reservedUsd: 0,
+          uncertainCostUsd: 0,
+          summary: "",
+          limitations: [],
+          log: "",
+        });
+      }
+      await this.persist(job);
+    } catch (error) {
+      if (rollback) await rollback();
+      if (!accounted) {
+        if (error instanceof PlannerError && error.costUsd !== null)
+          task.costUsd += error.costUsd;
+        else task.uncertainCostUsd += task.reservedUsd;
+      }
+      task.reservedUsd = 0;
+      task.status = "failed";
+      task.log = (
+        task.log +
+        "\n" +
+        (error instanceof Error
+          ? error.message
+          : "Uygulama geneli değişiklik uygulanamadı.")
       ).slice(-20000);
       throw error;
     }
@@ -665,12 +848,6 @@ export class BuilderManager {
       for (const task of job.tasks) {
         if (task.status === "ready") continue;
         if (
-          task.attempts >= (task.attemptLimit ?? 3) ||
-          task.costUsd + task.uncertainCostUsd + builderReservationUsd >
-            builderTaskLimitUsd + 0.000001
-        )
-          throw new Error("Ekran deneme veya görev bütçesi sınırına ulaşıldı.");
-        if (
           Math.max(job.project.aiCost, this.totalCost(job.project.id)) +
             builderReservationUsd >
           job.project.budgetLimit
@@ -678,6 +855,10 @@ export class BuilderManager {
           throw new Error("Proje bütçesi sonraki ekran için yetersiz.");
         if (task.kind === "features") {
           await this.executeFeatures(job, task, cwd);
+          continue;
+        }
+        if (task.kind === "app") {
+          await this.executeAppRevision(job, task, cwd);
           continue;
         }
         const file = screenFile(task.screenId);
@@ -706,10 +887,21 @@ export class BuilderManager {
         if (applicationMode)
           Object.assign(modules, await applicationModules(cwd));
         const spec = getSpecification(job.project);
-        const context = JSON.stringify({
+        const rejectedCode =
+          task.status === "failed" && task.attempts > 0
+            ? await readFile(
+                path.join(
+                  this.root,
+                  "workspace/builder",
+                  `${job.id}-${task.screenId}-${task.attempts}.txt`,
+                ),
+                "utf8",
+              ).catch(() => undefined)
+            : undefined;
+        const contextData = {
           task: job.change ? "REVISE_SCREEN" : "BUILD_SCREEN",
           applicationMode: !!applicationMode,
-          changeRequest: job.change?.instruction,
+          changeRequest: task.instruction ?? job.change?.instruction,
           file,
           projectMemory: {
             name: job.project.name,
@@ -735,7 +927,12 @@ export class BuilderManager {
               }
             : screenRequirements(file),
           previousDiagnostics: task.log.slice(-8000),
-        });
+        };
+        let context = JSON.stringify(
+          rejectedCode ? { ...contextData, rejectedCode } : contextData,
+        );
+        if (Buffer.byteLength(context) > 80000)
+          context = JSON.stringify(contextData);
         let image: Buffer | undefined;
         try {
           image = await readFile(
@@ -800,11 +997,7 @@ export class BuilderManager {
             ],
             [
               "ESLint",
-              [
-                path.join(cwd, "node_modules/eslint/bin/eslint.js"),
-                ".",
-                "--max-warnings=0",
-              ],
+              [path.join(cwd, "node_modules/eslint/bin/eslint.js"), "."],
             ],
           ] as const) {
             const check = await this.command(
@@ -821,6 +1014,7 @@ export class BuilderManager {
             if (check.exitCode !== 0)
               throw new Error(`${task.name}: ${label} kontrolü başarısız.`);
           }
+          task.limitations = [...task.limitations, ...lintWarning(task.log)];
           task.status = "ready";
           await this.persist(job);
         } catch (error) {

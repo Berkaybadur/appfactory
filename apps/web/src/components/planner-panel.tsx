@@ -76,8 +76,8 @@ export function PlannerPanel({ project }: { project: Project }) {
           : "AI bağlantısı hazır değil. Worker ortamında OPENAI_API_KEY ayarlandığında kullanılabilir; aşağıdaki yerel plan akışı çalışmaya devam eder."}
       </p>
       <p className="text-xs text-muted-foreground">
-        OpenAI · GPT-4.1 mini · Görev bütçesi en fazla $0.10 · İlk deneme + 2
-        manuel yeniden deneme. Proje adı, fikir ve platformlar sağlayıcıya
+        OpenAI · GPT-4.1 mini · Manuel yeniden deneme sayısı sınırsız; proje
+        bütçesi dolunca durur. Proje adı, fikir ve platformlar sağlayıcıya
         gönderilir.
       </p>
       {error && (
@@ -93,7 +93,7 @@ export function PlannerPanel({ project }: { project: Project }) {
               : job.status === "succeeded"
                 ? "AI taslağı hazır."
                 : "AI analizi tamamlanamadı."}{" "}
-            · Deneme {job.attempts}/3
+            · Deneme {job.attempts}
           </p>
           <p>
             Hesaplanan maliyet: ${job.costUsd.toFixed(6)} · Ayrılan / belirsiz
@@ -107,7 +107,7 @@ export function PlannerPanel({ project }: { project: Project }) {
         (stale && job.status !== "running")) && (
         <Button
           className="self-start"
-          disabled={!enabled || busy || (!stale && (job?.attempts ?? 0) >= 3)}
+          disabled={!enabled || busy}
           onClick={() => void start()}
         >
           {stale

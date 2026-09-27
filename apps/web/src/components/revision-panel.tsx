@@ -5,14 +5,24 @@ import {
   getScreens,
   getSpecification,
   sameSpecification,
+  appWideScreenId,
+  builderModelSchema,
   type BuilderJob,
   type Project,
 } from "@app-factory/schemas";
 import { OperationProgress, builderProgress } from "./operation-progress";
 import { PreviewPanel } from "./preview-panel";
+import { ConnectionPanel } from "./connection-panel";
 import { Button } from "./ui/button";
 import { useProjects } from "./project-provider";
-import { CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
+type BuilderModel = ReturnType<typeof builderModelSchema.parse>;
 export function RevisionPanel({
   project,
   sourceJobId,
@@ -29,7 +39,9 @@ export function RevisionPanel({
     [connectionError, setConnectionError] = useState("");
   const [instruction, setInstruction] = useState(""),
     [screenId, setScreenId] = useState(""),
-    [selected, setSelected] = useState("");
+    [selected, setSelected] = useState(""),
+    [issueKind, setIssueKind] = useState<"bug" | "design">("bug"),
+    [model, setModel] = useState<"" | BuilderModel>("");
   const requestId = useRef<string | null>(null);
   const { syncImageCost } = useProjects();
   const screens = getScreens(getSpecification(project)).filter(
@@ -54,6 +66,12 @@ export function RevisionPanel({
     (selected === sourceJobId || ready.some((j) => j.id === selected))
       ? selected
       : (ready.at(-1)?.id ?? sourceJobId);
+  const prefix =
+    section === "build"
+      ? issueKind === "bug"
+        ? "Expo önizlemesinde görülen hata: "
+        : "Expo önizlemesinde görülen tasarım sorunu: "
+      : "";
   useEffect(() => {
     let disposed = false,
       fetching = false;
@@ -105,6 +123,7 @@ export function RevisionPanel({
               requestId: latest.id,
               change: latest.change,
               retry: true,
+              ...(model ? { model } : {}),
             }
           : {
               project: { ...project, revisions: [] },
@@ -112,8 +131,9 @@ export function RevisionPanel({
               change: {
                 sourceJobId: selectedId,
                 screenId: screenId || screens[0]?.id,
-                instruction: instruction.trim(),
+                instruction: prefix + instruction.trim(),
               },
+              ...(model ? { model } : {}),
             };
       const r = await fetch("/api/revisions", {
         method: "POST",
@@ -133,13 +153,236 @@ export function RevisionPanel({
       setPending(false);
     }
   }
+  const modelSelect = (
+    <label className="block space-y-1 text-sm">
+      <span>AI modeli</span>
+      <select
+        className="block w-full rounded-md border bg-background p-2"
+        value={model}
+        disabled={pending || active}
+        onChange={(e) => {
+          const parsed = builderModelSchema.safeParse(e.target.value);
+          setModel(parsed.success ? parsed.data : "");
+        }}
+      >
+        <option value="">
+          Varsayılan (ekranlar GPT-6 Luna, uygulama geneli GPT-5 mini)
+        </option>
+        <option value="gpt-5-mini">
+          GPT-5 mini · akıl yürütmeli, daha pahalı
+        </option>
+        <option value="gpt-6-luna">GPT-6 Luna</option>
+        <option value="gpt-4.1-mini">GPT-4.1 mini</option>
+      </select>
+    </label>
+  );
+  const requestForm = (
+    <>
+      {section === "build" && (
+        <label className="block space-y-1 text-sm">
+          <span>Sorun türü</span>
+          <select
+            className="block w-full rounded-md border bg-background p-2"
+            value={issueKind}
+            disabled={pending || active}
+            onChange={(e) => {
+              setIssueKind(e.target.value === "design" ? "design" : "bug");
+              requestId.current = null;
+            }}
+          >
+            <option value="bug">
+              Hata (çökme, çalışmayan düğme, yanlış veri)
+            </option>
+            <option value="design">
+              Tasarım sorunu (görünüm, yerleşim, renk)
+            </option>
+          </select>
+        </label>
+      )}
+      <label className="block space-y-1 text-sm">
+        <span>Hangi ekran?</span>
+        <select
+          className="block w-full rounded-md border bg-background p-2"
+          value={screenId || screens[0]?.id || ""}
+          disabled={pending || active}
+          onChange={(e) => {
+            setScreenId(e.target.value);
+            requestId.current = null;
+          }}
+        >
+          <option value={appWideScreenId}>
+            Uygulama geneli (ortak işlevler ve ilgili ekranlar)
+          </option>
+          {screens.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block space-y-1 text-sm">
+        <span>
+          {section === "build" ? "Önizlemede ne gördünüz?" : "Ne değişsin?"}
+        </span>
+        <textarea
+          className="block min-h-24 w-full rounded-md border bg-background p-3"
+          maxLength={2000 - prefix.length}
+          value={instruction}
+          disabled={pending || active}
+          onChange={(e) => {
+            setInstruction(e.target.value);
+            requestId.current = null;
+          }}
+          placeholder={
+            section === "build"
+              ? issueKind === "bug"
+                ? "Örneğin: Kaydet düğmesine basınca uygulama kapanıyor. Expo'daki kırmızı hata ekranında 'undefined is not an object' yazıyor."
+                : "Örneğin: Kartlar ekrana sığmıyor, başlık çok büyük ve alt menü düğmeleri birbirine yapışık."
+              : "Örneğin: Ana ekrandaki kartları daha kompakt yap, başlığı küçült ve ekleme düğmesini belirginleştir."
+          }
+        />
+      </label>
+      {modelSelect}
+      <p className="text-xs text-muted-foreground">
+        {screenId === appWideScreenId
+          ? "Önce ortak işlevler (veri modeli, iş kuralları, veri katmanı, gerekirse migration) güncellenir; ardından AI'ın seçtiği her ekran ayrı görev olarak yeniden kodlanır. Yeni paket eklenmez. Her deneme için $0.08 bütçe ayrılır; yeniden deneme sayısı sınırsızdır, proje bütçesi dolunca durur."
+          : "Bir görev bir ekranı değiştirir. Yeni backend, paket veya ortak veri modeli eklemez. Her deneme için $0.08 bütçe ayrılır; yeniden deneme sayısı sınırsızdır, proje bütçesi dolunca durur."}
+      </p>
+      {(error || connectionError) && (
+        <p role="alert" className="text-sm text-destructive">
+          {error || connectionError}
+        </p>
+      )}
+      {!enabled && (
+        <p className="text-sm">Revizyon için worker AI bağlantısı gerekli.</p>
+      )}
+      <Button
+        disabled={
+          !enabled ||
+          !selectedId ||
+          pending ||
+          active ||
+          instruction.trim().length < 5
+        }
+        onClick={() => void submit()}
+      >
+        {active
+          ? "Revizyon hazırlanıyor…"
+          : section === "build"
+            ? "Sorunu AI ile düzelt, yeniden kodla"
+            : "Değişikliği AI ile uygula"}
+      </Button>
+      {(pending || latest) && (
+        <OperationProgress
+          {...builderProgress(pending ? null : (latest ?? null))}
+        />
+      )}
+    </>
+  );
+  const latestSummary = latest && (
+    <div className="space-y-2 border-t pt-4 text-sm">
+      <p className="font-medium">
+        Son revizyon:{" "}
+        {latest.status === "ready"
+          ? section === "build"
+            ? "Kod kontrolleri geçti — yukarıdan yeni sürümün önizlemesini başlatın"
+            : "Kod kontrolleri geçti — önizleme bekliyor"
+          : latest.status === "running"
+            ? "Hazırlanıyor"
+            : "Başarısız — önceki çıktı korundu"}
+      </p>
+      <p>{latest.change?.instruction}</p>
+      {latest.tasks.map((t, n) => (
+        <div key={n} className="space-y-1">
+          {latest.tasks.length > 1 && (
+            <p className="font-medium">
+              {t.name} ·{" "}
+              {t.status === "ready"
+                ? "Hazır"
+                : t.status === "running"
+                  ? "Kodlanıyor"
+                  : t.status === "failed"
+                    ? "Başarısız"
+                    : "Sırada"}
+            </p>
+          )}
+          {t.summary && <p>{t.summary}</p>}
+          {t.limitations.map((l, i) => (
+            <p key={i} className="text-muted-foreground">
+              {l}
+            </p>
+          ))}
+        </div>
+      ))}
+      {latest.error && <p className="text-destructive">{latest.error}</p>}
+      <p>
+        AI maliyeti: $
+        {latest.tasks
+          .reduce((n, t) => n + t.costUsd + t.uncertainCostUsd, 0)
+          .toFixed(6)}{" "}
+        · Deneme{" "}
+        {(latest.tasks.find((t) => t.status !== "ready") ?? latest.tasks[0])
+          ?.attempts ?? 0}
+      </p>
+      {section !== "tests" && latest.status === "failed" && (
+        <div className="space-y-2 rounded-md border p-3">
+          {modelSelect}
+          <p className="text-xs text-muted-foreground">
+            Seçilen model tamamlanmamış görevlerde kullanılır. Varsayılan
+            seçiliyse önceki model korunur.
+          </p>
+          <Button
+            variant="outline"
+            disabled={pending || active}
+            onClick={() => void submit(true)}
+          >
+            Revizyonu yeniden dene
+          </Button>
+        </div>
+      )}
+      {section === "tests" && (
+        <details>
+          <summary className="cursor-pointer">Kontrol günlükleri</summary>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs">
+            {latest.setupLog}
+            {latest.tasks.map((t) => t.log).join("\n")}
+          </pre>
+        </details>
+      )}
+    </div>
+  );
   return (
     <div className="space-y-5">
+      {section === "build" && (
+        <ConnectionPanel
+          key={"connection:" + (selectedId ?? "none")}
+          project={project}
+          sourceJobId={active ? null : selectedId}
+        />
+      )}
       {section === "build" && (
         <PreviewPanel
           key={selectedId ?? "none"}
           project={project}
           sourceJobId={active ? null : selectedId}
+          feedback={
+            <Card className="shadow-none">
+              <CardHeader>
+                <CardTitle>2. Önizlemede gördüklerini bildir</CardTitle>
+                <CardDescription>
+                  Telefonda gördüğünüz hataları ve tasarım sorunlarını yazın. AI
+                  seçilen ekranı yeniden kodlar ve kod kontrolleri çalışır.
+                  Önceki sürüm korunur. Yeni sürüm hazır olunca önizleme ona
+                  geçer; yukarıdan önizlemeyi yeniden başlatıp telefonda tekrar
+                  kontrol edin.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {requestForm}
+                {latestSummary}
+              </CardContent>
+            </Card>
+          }
         />
       )}
       <details className="rounded-xl border bg-card py-6 text-card-foreground">
@@ -191,135 +434,13 @@ export function RevisionPanel({
                 Henüz bu çıktıya bağlı revizyon kontrolü yok.
               </p>
             )}
-            {section === "development" && (
-              <>
-                <label className="block space-y-1 text-sm">
-                  <span>Hangi ekran?</span>
-                  <select
-                    className="block w-full rounded-md border bg-background p-2"
-                    value={screenId || screens[0]?.id || ""}
-                    disabled={pending || active}
-                    onChange={(e) => {
-                      setScreenId(e.target.value);
-                      requestId.current = null;
-                    }}
-                  >
-                    {screens.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block space-y-1 text-sm">
-                  <span>Ne değişsin?</span>
-                  <textarea
-                    className="block min-h-24 w-full rounded-md border bg-background p-3"
-                    maxLength={2000}
-                    value={instruction}
-                    disabled={pending || active}
-                    onChange={(e) => {
-                      setInstruction(e.target.value);
-                      requestId.current = null;
-                    }}
-                    placeholder="Örneğin: Ana ekrandaki kartları daha kompakt yap, başlığı küçült ve ekleme düğmesini belirginleştir."
-                  />
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  Bir görev bir ekranı değiştirir. Yeni backend, paket veya ortak
-                  veri modeli eklemez. Deneme başına $0.08 bütçe ayrılır; görev
-                  sınırı $0.24, en fazla iki manuel yeniden deneme.
-                </p>
-                {(error || connectionError) && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {error || connectionError}
-                  </p>
-                )}
-                {!enabled && (
-                  <p className="text-sm">
-                    Revizyon için worker AI bağlantısı gerekli.
-                  </p>
-                )}
-                <Button
-                  disabled={
-                    !enabled ||
-                    !selectedId ||
-                    pending ||
-                    active ||
-                    instruction.trim().length < 5
-                  }
-                  onClick={() => void submit()}
-                >
-                  {active
-                    ? "Revizyon hazırlanıyor…"
-                    : "Değişikliği AI ile uygula"}
-                </Button>
-                {(pending || latest) && (
-                  <OperationProgress
-                    {...builderProgress(pending ? null : (latest ?? null))}
-                  />
-                )}
-              </>
-            )}
-            {section !== "development" && connectionError && (
+            {section === "development" && requestForm}
+            {section === "tests" && connectionError && (
               <p role="alert" className="text-sm text-destructive">
                 {connectionError}
               </p>
             )}
-            {section !== "build" && latest && (
-              <div className="space-y-2 border-t pt-4 text-sm">
-                <p className="font-medium">
-                  Son revizyon:{" "}
-                  {latest.status === "ready"
-                    ? "Kod kontrolleri geçti — önizleme bekliyor"
-                    : latest.status === "running"
-                      ? "Hazırlanıyor"
-                      : "Başarısız — önceki çıktı korundu"}
-                </p>
-                <p>{latest.change?.instruction}</p>
-                {latest.tasks[0]?.summary && <p>{latest.tasks[0].summary}</p>}
-                {latest.tasks[0]?.limitations.map((l, i) => (
-                  <p key={i} className="text-muted-foreground">
-                    {l}
-                  </p>
-                ))}
-                {latest.error && (
-                  <p className="text-destructive">{latest.error}</p>
-                )}
-                <p>
-                  AI maliyeti: $
-                  {latest.tasks
-                    .reduce((n, t) => n + t.costUsd + t.uncertainCostUsd, 0)
-                    .toFixed(6)}{" "}
-                  · Deneme {latest.tasks[0]?.attempts}/3
-                </p>
-                {section === "development" && latest.status === "failed" && (
-                  <Button
-                    variant="outline"
-                    disabled={
-                      pending ||
-                      active ||
-                      latest.tasks.some((t) => t.attempts >= 3) ||
-                      (!latest.installed && latest.setupAttempts >= 3)
-                    }
-                    onClick={() => void submit(true)}
-                  >
-                    Revizyonu yeniden dene
-                  </Button>
-                )}
-                {section === "tests" && (
-                  <details>
-                    <summary className="cursor-pointer">
-                      Kontrol günlükleri
-                    </summary>
-                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs">
-                      {latest.setupLog}
-                      {latest.tasks.map((t) => t.log).join("\n")}
-                    </pre>
-                  </details>
-                )}
-              </div>
-            )}
+            {section !== "build" && latestSummary}
           </div>
         </CardContent>
       </details>

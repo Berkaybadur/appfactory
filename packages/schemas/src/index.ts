@@ -273,7 +273,7 @@ export const generationJobSchema = z.object({
   outputPath: z.string(),
   files: z.array(z.string()),
   checks: z.array(checkSchema),
-  validationAttempts: z.number().int().min(0).max(3),
+  validationAttempts: z.number().int().min(0),
   error: z.string().nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -450,7 +450,7 @@ export const plannerJobSchema = z.object({
   input: projectInputSchema,
   priorCostUsd: z.number().nonnegative(),
   status: z.enum(["running", "succeeded", "failed"]),
-  attempts: z.number().int().min(1).max(3),
+  attempts: z.number().int().min(1),
   costUsd: z.number().nonnegative(),
   reservedUsd: z.number().nonnegative(),
   uncertainCostUsd: z.number().nonnegative(),
@@ -664,9 +664,10 @@ export const builderRetryApprovalSchema = z.object({
   expectedAttempts: z.number().int().nonnegative(),
 });
 export const builderTaskSchema = z.object({
-  kind: z.enum(["features", "screen"]).optional(),
+  kind: z.enum(["features", "screen", "app"]).optional(),
   screenId: screenIdSchema,
   name: z.string(),
+  instruction: z.string().max(4000).optional(),
   status: z.enum(["pending", "running", "ready", "failed"]),
   attempts: z.number().int().nonnegative(),
   attemptLimit: z.number().int().min(3).optional(),
@@ -678,9 +679,10 @@ export const builderTaskSchema = z.object({
   limitations: z.array(z.string()),
   log: z.string(),
 });
+export const appWideScreenId = "app";
 export const codeChangeSchema = z.object({
   sourceJobId: z.uuid(),
-  screenId: screenIdSchema,
+  screenId: z.union([screenIdSchema, z.literal(appWideScreenId)]),
   instruction: z.string().trim().min(5).max(2000),
 });
 export const revisionRequestSchema = z.object({
@@ -688,6 +690,7 @@ export const revisionRequestSchema = z.object({
   requestId: z.uuid(),
   change: codeChangeSchema,
   retry: z.boolean().default(false),
+  model: builderModelSchema.optional(),
 });
 export const builderJobSchema = z.object({
   applicationPrepared: z.boolean().optional(),
@@ -712,7 +715,7 @@ export const builderJobSchema = z.object({
   project: projectSchema.safeExtend({ id: projectIdSchema }),
   status: z.enum(["running", "failed", "ready"]),
   outputPath: z.string(),
-  setupAttempts: z.number().int().min(0).max(3),
+  setupAttempts: z.number().int().min(0),
   installed: z.boolean(),
   tasks: z.array(builderTaskSchema).min(1).max(21),
   error: z.string().nullable(),
@@ -901,11 +904,62 @@ export function featureJsonSchema() {
 export const featureRepairSchema = featureOutputSchema
   .pick({ summary: true })
   .extend({
-    files: z.array(featureOutputSchema.shape.files.element).min(1).max(4),
+    files: z.array(featureOutputSchema.shape.files.element).min(0).max(4),
+    migrationSql: featureOutputSchema.shape.migrationSql.nullable(),
   });
 
 export function featureRepairJsonSchema() {
   const schema = z.toJSONSchema(featureRepairSchema);
+  delete schema.$schema;
+  return schema;
+}
+
+export const appConnectionSchema = z
+  .object({
+    url: z.union([
+      z.literal(""),
+      z
+        .string()
+        .max(300)
+        .regex(/^https:\/\/[^\s"'<>]+$/, "Adres https:// ile başlamalı."),
+    ]),
+    publishableKey: z.union([
+      z.literal(""),
+      z
+        .string()
+        .regex(
+          /^sb_publishable_[A-Za-z0-9_-]{10,200}$/,
+          "Anahtar sb_publishable_ ile başlamalı; sunucu anahtarı kullanılamaz.",
+        ),
+    ]),
+  })
+  .refine((c) => !c.url === !c.publishableKey, {
+    message: "Adres ve anahtar birlikte girilmeli veya birlikte boş kalmalı.",
+  });
+export type AppConnection = z.infer<typeof appConnectionSchema>;
+export const connectionRequestSchema = z.object({
+  project: projectSchema.safeExtend({ id: projectIdSchema }),
+  sourceJobId: z.uuid(),
+  connection: appConnectionSchema.optional(),
+});
+
+export const appRevisionSchema = featureOutputSchema
+  .pick({ summary: true, limitations: true })
+  .extend({
+    files: z.array(featureOutputSchema.shape.files.element).max(4),
+    migrationSql: featureOutputSchema.shape.migrationSql.nullable(),
+    screens: z
+      .array(
+        z.object({
+          screenId: z.string().max(80),
+          instruction: z.string().min(5).max(2000),
+        }),
+      )
+      .max(20),
+  });
+export type AppRevisionOutput = z.infer<typeof appRevisionSchema>;
+export function appRevisionJsonSchema() {
+  const schema = z.toJSONSchema(appRevisionSchema);
   delete schema.$schema;
   return schema;
 }

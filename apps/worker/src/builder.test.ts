@@ -147,7 +147,7 @@ test("Builder stops on failed checks, resumes only failed task and is idempotent
     await rm(root, { recursive: true, force: true });
   }
 });
-test("Builder enforces approval, shared budget and two manual retries", async () => {
+test("Builder enforces approval and shared budget; manual retries are not capped", async () => {
   const { root, project } = await fixture();
   try {
     const m = new BuilderManager(
@@ -164,15 +164,23 @@ test("Builder enforces approval, shared budget and two manual retries", async ()
       m.start({ ...project, designReview: undefined }, false, "screens"),
       /onaylayın/,
     );
-    await assert.rejects(m.start({ ...project, budgetLimit: 0.01 }, false, "screens"), /bütçesi/);
+    await assert.rejects(
+      m.start({ ...project, budgetLimit: 0.01 }, false, "screens"),
+      /bütçesi/,
+    );
     await m.start(project, false, "screens");
     await finish(m);
     await m.start(project, true, "screens");
     await finish(m);
     await m.start(project, true, "screens");
     await finish(m);
-    await assert.rejects(m.start(project, true, "screens"), /iki yeniden/);
-    assert.equal(m.list(project.id)[0]?.tasks[0]?.attempts, 3);
+    await m.start(project, true, "screens");
+    await finish(m);
+    assert.equal(m.list(project.id)[0]?.tasks[0]?.attempts, 4);
+    await assert.rejects(
+      m.start({ ...project, aiCost: 1.99 }, true, "screens"),
+      /bütçesi/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -378,7 +386,7 @@ test("screen revision clones the working output, changes one screen and deduplic
     await rm(root, { recursive: true, force: true });
   }
 });
-test("revision failed validation restores code and allows only two manual retries", async () => {
+test("revision failed validation restores code and allows further manual retries", async () => {
   const { root, project } = await fixture();
   try {
     const { generateProject } = await import("@app-factory/generator");
@@ -389,12 +397,17 @@ test("revision failed validation restores code and allows only two manual retrie
       "utf8",
     );
     let calls = 0;
+    const inputs: { rejectedCode?: string; model?: string }[] = [];
     const m = new BuilderManager(
       root,
       () => 0,
       "test",
       async (input) => {
         calls++;
+        inputs.push({
+          rejectedCode: JSON.parse(input.context).rejectedCode,
+          model: input.model,
+        });
         return {
           output: {
             ...output,
@@ -430,16 +443,20 @@ test("revision failed validation restores code and allows only two manual retrie
       await readFile(path.join(root, job.outputPath, "app/index.tsx"), "utf8"),
       original,
     );
-    for (let i = 0; i < 2; i++) {
-      await m.revise({ ...req, retry: true }, resolve);
+    for (let i = 0; i < 3; i++) {
+      await m.revise(
+        { ...req, retry: true, ...(i === 2 ? { model: "gpt-5-mini" } : {}) },
+        resolve,
+      );
       await finish(m);
     }
-    await assert.rejects(
-      m.revise({ ...req, retry: true }, resolve),
-      /deneme hakkı/,
-    );
-    assert.equal(calls, 3);
-    assert.equal(job.tasks[0]?.costUsd, 0.03);
+    assert.equal(calls, 4);
+    assert.equal(inputs[0]?.rejectedCode, undefined);
+    assert.equal(inputs[1]?.rejectedCode, original + "\n// rejected");
+    assert.equal(inputs[2]?.model, undefined);
+    assert.equal(inputs[3]?.model, "gpt-5-mini");
+    assert.equal(job.tasks[0]?.attempts, 4);
+    assert.ok(Math.abs((job.tasks[0]?.costUsd ?? 0) - 0.04) < 1e-9);
     assert.equal(
       await readFile(
         path.join(root, source.outputPath, "app/index.tsx"),

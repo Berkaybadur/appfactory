@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   previewSessionSchema,
@@ -22,9 +22,11 @@ import { useProjects } from "./project-provider";
 export function PreviewPanel({
   project,
   sourceJobId,
+  feedback,
 }: {
   project: Project;
   sourceJobId: string | null;
+  feedback?: ReactNode;
 }) {
   const [session, setSession] = useState<PreviewSession | null>(null);
   const [approvals, setApprovals] = useState<PreviewApproval[]>([]);
@@ -79,36 +81,42 @@ export function PreviewPanel({
       clearInterval(timer);
     };
   }, [project.id]);
-  async function action(kind: "start" | "stop" | "approve") {
+  async function post(body: object) {
+    const r = await fetch("/api/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error ?? "Önizleme işlemi başarısız.");
+    receive(data);
+  }
+  async function action(kind: "start" | "stop" | "approve" | "restart") {
     setPending(true);
     setError("");
     try {
-      const body =
-        kind === "stop"
-          ? { action: kind, projectId: project.id, sessionId: session?.id }
-          : {
-              action: kind,
-              project: { ...project, revisions: [] },
-              sourceJobId,
-              ...(kind === "approve"
-                ? {
-                    sessionId: current?.id,
-                    platforms: [
-                      ...(ios ? ["ios"] : []),
-                      ...(android ? ["android"] : []),
-                    ],
-                  }
-                : {}),
-            };
-      const r = await fetch("/api/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error ?? "Önizleme işlemi başarısız.");
-      receive(data);
-      if (kind === "start") {
+      if (kind === "stop" || kind === "restart")
+        await post({
+          action: "stop",
+          projectId: project.id,
+          sessionId: session?.id,
+        });
+      if (kind !== "stop")
+        await post({
+          action: kind === "restart" ? "start" : kind,
+          project: { ...project, revisions: [] },
+          sourceJobId,
+          ...(kind === "approve"
+            ? {
+                sessionId: current?.id,
+                platforms: [
+                  ...(ios ? ["ios"] : []),
+                  ...(android ? ["android"] : []),
+                ],
+              }
+            : {}),
+        });
+      if (kind === "start" || kind === "restart") {
         setIos(false);
         setAndroid(false);
       }
@@ -153,11 +161,19 @@ export function PreviewPanel({
               durdurun.
             </p>
           )}
-          {active && !current && (
-            <p className="text-sm">
-              Önceki sürümün önizlemesi açık. Yeni sürümü görmek için önce
-              durdurup yeniden başlatın.
-            </p>
+          {active && !current && session?.projectId === project.id && (
+            <div className="space-y-2 rounded-md border border-amber-300 p-3 text-sm">
+              <p>
+                Açık önizleme önceki sürümü gösteriyor. Yeni kodu telefonda
+                görmek için önizlemeyi yeni sürümle yeniden başlatın.
+              </p>
+              <Button
+                disabled={!sourceJobId || pending}
+                onClick={() => void action("restart")}
+              >
+                Yeni sürümle önizlemeyi yeniden başlat
+              </Button>
+            </div>
           )}
           <div className="flex flex-wrap gap-2">
             <Button
@@ -276,6 +292,7 @@ export function PreviewPanel({
           )}
         </CardContent>
       </Card>
+      {feedback}
       <EasPanel
         project={project}
         sourceJobId={sourceJobId}

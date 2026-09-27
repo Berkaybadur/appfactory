@@ -183,9 +183,8 @@ export function DesignGallery({ project }: { project: Project }) {
         />
         <p className="text-xs leading-5 text-muted-foreground">
           Görsel için $0.20, her onaylı referans için ek $0.05 bütçe ayrılır;
-          gerçek kullanım ayrıca hesaplanır. Her ekran sürümünde ilk üretim + en
-          fazla iki manuel yeniden üretim. Otomatik tekrar yoktur. Üretim birkaç
-          dakika sürebilir.
+          gerçek kullanım ayrıca hesaplanır. Yeni taslaklar yalnızca elle
+          istenir; otomatik tekrar yoktur. Üretim birkaç dakika sürebilir.
         </p>
         <p className="text-xs leading-5 text-muted-foreground">
           Bunlar tasarım referanslarıdır; henüz çalışan uygulama değildir.
@@ -363,13 +362,10 @@ export function DesignGallery({ project }: { project: Project }) {
                   />
                   <Button
                     variant="outline"
-                    disabled={
-                      !enabled || loading || busy || history.length >= 3
-                    }
+                    disabled={!enabled || loading || busy}
                     onClick={() => void generate(screen.id)}
                   >
-                    {latest ? "Yeni taslak üret" : "Görsel taslak üret"} ·{" "}
-                    {history.length}/3
+                    {latest ? "Yeni taslak üret" : "Görsel taslak üret"}
                     {" · $" +
                       designImageReservation(
                         designGenerationReferences(project, jobs, screen.id)

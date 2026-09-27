@@ -121,10 +121,6 @@ export class DesignImageManager {
       throw new Error(
         "Bu ekran başka bir sekmede güncellendi. Güncel sonucu bekleyin.",
       );
-    if (previous.length >= 3)
-      throw new Error(
-        "Bu ekran sürümü için ilk üretim ve iki yeniden deneme hakkı kullanıldı.",
-      );
     const references = designGenerationReferences(
       project,
       this.list(project.id),

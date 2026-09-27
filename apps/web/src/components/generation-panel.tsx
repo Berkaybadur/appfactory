@@ -292,9 +292,7 @@ export function GenerationPanel({
                   job.status !== "ready" && (
                     <div className="space-y-2">
                       <Button
-                        disabled={
-                          busy || job.validationAttempts >= 3 || !!error
-                        }
+                        disabled={busy || !!error}
                         onClick={() => {
                           void submit("validate");
                         }}
@@ -306,8 +304,7 @@ export function GenerationPanel({
                       <p className="text-xs leading-5 text-muted-foreground">
                         npm paketleri indirilir; ardından gerçek TypeScript ve
                         ESLint kontrolleri çalışır. Otomatik tekrar yok.
-                        Kullanılan deneme: {job.validationAttempts}/3 (ilk
-                        deneme + 2 yeniden deneme).
+                        Kullanılan deneme: {job.validationAttempts}.
                       </p>
                     </div>
                   )}

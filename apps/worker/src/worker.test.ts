@@ -37,7 +37,7 @@ test("runner records real failure and terminates timed-out processes", async () 
   assert.equal(timeout.exitCode, null);
   assert.match(timeout.output, /zaman aşımı/);
 });
-test("restart marks unfinished jobs failed and persists retry limits", async () => {
+test("restart marks unfinished jobs failed and keeps their attempt count", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "factory-worker-"));
   try {
     const directory = path.join(root, "workspace/jobs");
@@ -81,12 +81,11 @@ test("restart marks unfinished jobs failed and persists retry limits", async () 
     await manager.initialize();
     assert.equal(manager.jobs.get("test")?.status, "failed");
     assert.equal(manager.jobs.get("test")?.checks[0]?.status, "failed");
-    await assert.rejects(manager.validate("test"), /2 yeniden deneme/);
-    assert.equal(
-      JSON.parse(await readFile(path.join(directory, "test.json"), "utf8"))
-        .status,
-      "failed",
+    const persisted = JSON.parse(
+      await readFile(path.join(directory, "test.json"), "utf8"),
     );
+    assert.equal(persisted.status, "failed");
+    assert.equal(persisted.validationAttempts, 3);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

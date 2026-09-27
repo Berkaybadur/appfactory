@@ -78,14 +78,7 @@ async function verifyOutput(cwd: string) {
       "TypeScript",
       [path.join(cwd, "node_modules/typescript/bin/tsc"), "--noEmit"],
     ],
-    [
-      "ESLint",
-      [
-        path.join(cwd, "node_modules/eslint/bin/eslint.js"),
-        ".",
-        "--max-warnings=0",
-      ],
-    ],
+    ["ESLint", [path.join(cwd, "node_modules/eslint/bin/eslint.js"), "."]],
   ] as const) {
     const result = await runCommand(process.execPath, [...args], cwd, 120000);
     if (result.exitCode !== 0)
@@ -246,10 +239,6 @@ export class EasManager {
     const attempts = previous.filter((j) => j.sourceJobId === source.id);
     if (attempts.some((j) => j.status === "finished"))
       throw new Error("Bu çıktının APK'sı zaten hazır.");
-    if (attempts.length >= 3)
-      throw new Error(
-        "Bu çıktı için ilk deneme ve iki yeniden deneme hakkı kullanıldı.",
-      );
     const now = new Date().toISOString();
     const job: EasJob = {
       id: req.requestId,

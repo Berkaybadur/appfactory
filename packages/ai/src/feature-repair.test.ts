@@ -61,12 +61,13 @@ test("targeted repair merges only changed files and retains SQL, tests and other
     async (_url, init) => {
       const body = JSON.parse(String(init?.body));
       assert.equal(body.max_output_tokens, 10000);
-      assert.equal(body.text.format.schema.properties.files.minItems, 1);
+      assert.ok(body.text.format.schema.required.includes("migrationSql"));
       return response({
         summary: "Dizin erişimi düzeltildi",
         files: [
           { path: "src/features/domain.ts", code: "export const value = 2;" },
         ],
+        migrationSql: null,
       });
     },
   );
@@ -86,8 +87,40 @@ test("targeted repair merges only changed files and retains SQL, tests and other
         response({
           summary: "bad",
           files: [{ path: "tsconfig.json", code: "disable strict" }],
+          migrationSql: null,
         }),
     ),
     (e: unknown) => e instanceof PlannerError && e.costUsd === 0.00225,
   );
+  await assert.rejects(
+    runFeatureBuilder(
+      { context: JSON.stringify({ previousCandidate: previous }) },
+      "test",
+      async () => response({ summary: "boş", files: [], migrationSql: null }),
+    ),
+    /değişiklik içermiyor/,
+  );
+});
+test("repair can replace a rejected migration without touching feature files", async () => {
+  const backend = {
+    ...previous,
+    capabilities: ["backend" as const],
+    migrationSql: "create table if not exists public.spots (id uuid);",
+  };
+  const fixed =
+    backend.migrationSql +
+    "\nalter table public.spots enable row level security;";
+  const result = await runFeatureBuilder(
+    {
+      context: JSON.stringify({
+        previousCandidate: backend,
+        previousDiagnostics: "Migration RLS içermeli",
+      }),
+    },
+    "test",
+    async () =>
+      response({ summary: "RLS eklendi", files: [], migrationSql: fixed }),
+  );
+  assert.equal(result.output.migrationSql, fixed);
+  assert.deepEqual(result.output.files, backend.files);
 });

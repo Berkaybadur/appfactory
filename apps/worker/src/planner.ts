@@ -84,8 +84,6 @@ export class PlannerManager {
       throw new Error("AI için worker ortamında OPENAI_API_KEY ayarlayın.");
     if (this.locked)
       throw new Error("Başka bir AI analizi sürüyor. Tamamlanmasını bekleyin.");
-    if (existing && existing.attempts >= 3)
-      throw new Error("İlk deneme ve iki yeniden deneme hakkı kullanıldı.");
     if (
       existing &&
       existing.baseRevision !== getSpecification(project).revision
@@ -104,11 +102,8 @@ export class PlannerManager {
           ? previous.priorCostUsd + previous.costUsd + previous.uncertainCostUsd
           : 0,
       );
-    if (
-      cost + uncertain + reserved > limit ||
-      prior + cost + uncertain + reserved > project.budgetLimit
-    )
-      throw new Error("AI görevi veya proje bütçesi bu istek için yetersiz.");
+    if (prior + cost + uncertain + reserved > project.budgetLimit)
+      throw new Error("Proje bütçesi bu istek için yetersiz.");
     const job: PlannerJob = {
       id: existing?.id ?? randomUUID(),
       projectId: project.id,

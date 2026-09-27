@@ -4,6 +4,7 @@ import { ReleaseManager } from "./release";
 import { DesignAssetGithub } from "./design-github";
 import { EasManager } from "./eas";
 import { PreviewManager } from "./preview";
+import { appConnection } from "./connection";
 import type { Project } from "@app-factory/schemas";
 import { stopEasCommands } from "./eas-cli";
 import { easRequestSchema, sameSpecification } from "@app-factory/schemas";
@@ -282,8 +283,16 @@ const server = createServer(async (request, response) => {
         send(415, { error: "JSON istek gerekli." });
         return;
       }
-      if (designImages.busy || planner.busy || github?.busy || githubPending)
+      if (designImages.busy || planner.busy)
         throw new Error("Başka bir AI görevi sürüyor.");
+      // A failed job is published right after it settles; wait instead of rejecting the retry.
+      const deadline = Date.now() + 30000;
+      while ((github?.busy || githubPending) && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      if (github?.busy || githubPending)
+        throw new Error(
+          "GitHub'a yükleme sürüyor. Birkaç saniye sonra tekrar deneyin.",
+        );
       send(202, {
         job: await builder.revise(await readBody(request), resolveSource),
       });
@@ -449,6 +458,17 @@ const server = createServer(async (request, response) => {
         return;
       }
       send(200, await preview.action(await readBody(request)));
+      return;
+    }
+    if (url.pathname === "/connection" && request.method === "POST") {
+      if (!request.headers["content-type"]?.startsWith("application/json")) {
+        send(415, { error: "JSON istek gerekli." });
+        return;
+      }
+      send(
+        200,
+        await appConnection(root, resolveSource, await readBody(request)),
+      );
       return;
     }
     if (url.pathname === "/eas" && request.method === "GET") {

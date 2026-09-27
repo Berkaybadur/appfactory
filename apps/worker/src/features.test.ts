@@ -296,6 +296,123 @@ test("application Builder generates shared features before connected screens and
     await rm(root, { recursive: true, force: true });
   }
 });
+test("app-wide revision updates shared modules first, then only the screens it selects", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "application-revision-"));
+  try {
+    await cp(path.resolve("templates"), path.join(root, "templates"), {
+      recursive: true,
+    });
+    const screenRequests: string[] = [];
+    const appResponses = [
+      {
+        summary: "Çıkış eklendi",
+        limitations: [],
+        files: [
+          {
+            path: "src/features/store.tsx" as const,
+            code: 'import type {ReactNode} from "react"; export function AppProvider({children}:{children:ReactNode}) {return children;} export function useApp(){return {ready:true,error:null,signOut:()=>undefined};}',
+          },
+        ],
+        migrationSql: null,
+        screens: [
+          { screenId: "home", instruction: "Çıkış düğmesi ekle." },
+          { screenId: "missing", instruction: "Yok sayılmalı." },
+        ],
+      },
+      {
+        summary: "Boş",
+        limitations: [],
+        files: [],
+        migrationSql: null,
+        screens: [],
+      },
+    ];
+    const manager = new BuilderManager(
+      root,
+      () => 0,
+      "test",
+      async (input) => {
+        const context = JSON.parse(input.context);
+        if (context.task === "REVISE_SCREEN")
+          screenRequests.push(context.changeRequest);
+        return {
+          costUsd: 0.01,
+          output: {
+            code: 'import {useApp} from "../src/features/store"; export default function Home(){ const {ready}=useApp(); return ready ? null : null; }',
+            summary: "Bağlı ekran",
+            limitations: [],
+          },
+        };
+      },
+      command,
+      generateProject,
+      async () => ({ output, costUsd: 0.02 }),
+      async (input) => {
+        const context = JSON.parse(input.context);
+        assert.equal(context.task, "REVISE_APPLICATION");
+        assert.ok(context.modules["src/features/store.tsx"]);
+        assert.deepEqual(
+          context.enabledScreens.map((s: { screenId: string }) => s.screenId),
+          ["home"],
+        );
+        return { output: appResponses.shift()!, costUsd: 0.03 };
+      },
+    );
+    await manager.initialize();
+    const source = await manager.start(project);
+    await finished(manager);
+    assert.equal(source.status, "ready", source.error ?? "");
+    const resolve = () => ({
+      id: source.id,
+      project,
+      outputPath: source.outputPath,
+    });
+    const change = {
+      sourceJobId: source.id,
+      screenId: "app",
+      instruction: "Her ekrandan çıkış yapılabilsin.",
+    };
+    const job = await manager.revise(
+      { project, requestId: crypto.randomUUID(), change },
+      resolve,
+    );
+    await finished(manager);
+    assert.equal(job.status, "ready", job.error ?? "");
+    assert.deepEqual(
+      job.tasks.map((t) => [t.kind ?? "screen", t.screenId, t.status]),
+      [
+        ["app", "home", "ready"],
+        ["screen", "home", "ready"],
+      ],
+    );
+    assert.equal(screenRequests.length, 1);
+    assert.match(screenRequests[0]!, /Her ekrandan çıkış/);
+    assert.match(screenRequests[0]!, /Bu ekran için: Çıkış düğmesi ekle\./);
+    assert.match(
+      await readFile(
+        path.join(root, job.outputPath, "src/features/store.tsx"),
+        "utf8",
+      ),
+      /signOut/,
+    );
+    assert.doesNotMatch(
+      await readFile(
+        path.join(root, source.outputPath, "src/features/store.tsx"),
+        "utf8",
+      ),
+      /signOut/,
+    );
+    const empty = await manager.revise(
+      { project, requestId: crypto.randomUUID(), change },
+      resolve,
+    );
+    await finished(manager);
+    assert.equal(empty.status, "failed");
+    assert.match(empty.error ?? "", /hiçbir dosyayı/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test("failed feature checks roll back every generated module and retry only the incomplete task", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "application-rollback-"));
   try {

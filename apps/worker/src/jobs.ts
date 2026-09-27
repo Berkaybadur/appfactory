@@ -139,10 +139,6 @@ export class JobManager {
       throw new Error("Önce Expo projesini üretin.");
     if (busy(job)) return job;
     if (job.status === "ready") return job;
-    if (job.validationAttempts >= 3)
-      throw new Error(
-        "İlk deneme ve 2 yeniden deneme hakkı kullanıldı. Logları inceleyin.",
-      );
     job.validationAttempts++;
     job.operation = "validate";
     job.status = "queued";

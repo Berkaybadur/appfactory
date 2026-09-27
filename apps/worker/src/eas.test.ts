@@ -236,7 +236,7 @@ test("restart never resubmits an interrupted EAS call", async () => {
     await rm(f.root, { recursive: true, force: true });
   }
 });
-test("first-time signing is actionable and attempts are capped at three", async () => {
+test("first-time signing is actionable and manual attempts are not capped", async () => {
   const f = await fixture();
   const cloudId = randomUUID();
   try {
@@ -253,7 +253,7 @@ test("first-time signing is actionable and attempts are capped at three", async 
     );
     await m.initialize();
     let previous: string | null = null;
-    for (let n = 0; n < 3; n++) {
+    for (let n = 0; n < 4; n++) {
       const job = await m.start({
         ...f.request,
         requestId: randomUUID(),
@@ -263,14 +263,6 @@ test("first-time signing is actionable and attempts are capped at three", async 
       assert.equal(job.status, "needs_setup");
       previous = job.id;
     }
-    await assert.rejects(
-      m.start({
-        ...f.request,
-        requestId: randomUUID(),
-        expectedLatestId: previous,
-      }),
-      /iki yeniden/,
-    );
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }

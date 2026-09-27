@@ -49,7 +49,7 @@ Supabase tablo/üyelik kurulumu tamamlanmadan bulut kaydı çalışmaz. Expo ça
 - Çıktı `workspace/generated-projects/<proje-id>/<iş-id>/` altında ayrı dizine yazılır. Var olan dizinin üzerine yazılmaz; aynı üretim isteği mevcut işi döndürür.
 - `project-memory.json` proje özetini ve bütçesini içerir. Üretim kayıtları, loglar ve çıktılar Git’e dahil edilmez.
 - Worker tek seferde bir iş çalıştırır. Kurulum en fazla 6 dakika, her kod kontrolü en fazla 2 dakika sürer. Son 20.000 karakter log saklanır.
-- Doğrulama için ilk deneme + en fazla 2 manuel yeniden deneme vardır. Başarılı iş tekrar çalıştırılmaz. Başarısız dosya üretiminde eski çıktı korunur; yeni proje oluşturulabilir.
+- Doğrulama başarısız olursa elle sınırsız yeniden denenebilir. Başarılı iş tekrar çalıştırılmaz. Başarısız dosya üretiminde eski çıktı korunur; yeni proje oluşturulabilir.
 - Kurulum `npm install --ignore-scripts --no-audit --no-fund --fetch-retries=0` kullanır. Kullanıcı fikri bir komut veya kaynak kod olarak çalıştırılmaz; JSON olarak yazılır.
 - Worker yalnızca loopback üzerinde dinler. Panel sunucusu, worker’ın ürettiği `workspace/.worker-token` ile haberleşir; token tarayıcıya verilmez. Bu kişisel yerel araçtır; internete dağıtım öncesinde kimlik doğrulama ve yetkilendirme eklenmelidir.
 
@@ -79,7 +79,7 @@ Production build bu ortamda Turbopack’ın işlem bağlantısı hatası nedeniy
 
 ## Sonraki adımlar
 
-AI Reviewer ile görsel/işlev incelemesi; Supabase kalıcılığı, authentication ve RLS. AI görevlerinde proje/görev bütçeleri ve en fazla 2 elle retry uygulanır. APK/EAS derlemesi ve cihaz doğrulaması ayrı aşamadır. V1 oyun üretmez.
+AI Reviewer ile görsel/işlev incelemesi; Supabase kalıcılığı, authentication ve RLS. AI görevlerinde ortak proje bütçesi uygulanır; elle yeniden deneme sayısı sınırsızdır. APK/EAS derlemesi ve cihaz doğrulaması ayrı aşamadır. V1 oyun üretmez.
 
 ## Sprint 3: düzenlenebilir plan ve tasarım
 
@@ -106,7 +106,7 @@ Planner, OpenAI Responses API üzerinden `gpt-4.1-mini-2025-04-14` modelini ve S
 - Yalnızca proje adı, fikir ve platformlardan oluşan görev bağlamı gönderilir. Dosyalar ve sürüm geçmişi modele gönderilmez. İstekte `store: false` kullanılır.
 - Plan, mevcut şablonlardan ekran seçimi, tasarım, önerilen alan/eylemler ve kabul kriterli geliştirme görevleri döner. Çıktı Zod ile doğrulanır.
 - Görev başına toplam $0.10 ve proje bütçesi kontrol edilir. İstekten önce UTF-8 boyutu + ek pay ve 6.000 maksimum çıktı tokenı üzerinden bütçe ayrılır. Kullanım bilgisinde maliyet hesaplanır; belirsizse rezerv korunur.
-- İlk istek + en fazla iki **manuel** yeniden deneme vardır. Aynı proje için süren veya tamamlanmış analiz tekrar ücretlendirilmez. Bu sürümde proje başına bir Planner işi bulunur; tamamlanmış analizi yeniden üretme henüz yoktur.
+- Başarısız analiz **elle** sınırsız yeniden denenebilir; yalnızca proje bütçesi sınırlar. Aynı proje için süren veya tamamlanmış analiz tekrar ücretlendirilmez. Bu sürümde proje başına bir Planner işi bulunur; tamamlanmış analizi yeniden üretme henüz yoktur.
 - İşler `workspace/planner/<proje-id>.json` dosyalarında kalır. Yeniden başlatmada yarım kalan isteğin rezervi belirsiz harcama olarak tutulur. Anahtar ve sağlayıcı hata gövdeleri kaydedilmez.
 - Taslak uygulandığında yeni sürüm ve plan onayı oluşur. Eski taslak yeni düzenlemelerin üzerine yazılamaz. Taslak projede ve üretim belleğinde saklanır.
 - Özel alan/eylem önerileri **henüz çalışan kod veya birebir görsel önizleme değildir**. Önizleme mevcut beş ekran şablonunu kullanır. Görevler Geliştirme sayfasında görünür; Görsel onayı bulunan projelerde Builder, mevcut yerel kayıt davranışını koruyarak ekran kodunu üretir.
@@ -119,7 +119,7 @@ Tasarım sayfasının ana görünümü artık AI görsel galerisidir. Seçili he
 - Her çağrıda $0.20 ve onaylı referans başına ek $0.05 yerel bütçe rezervi ayrılır; toplam düğmede gösterilir. Bu, sağlayıcının kesin fatura limiti değildir. Metin ve görsel girdi tokenları ayrı fiyatlarla hesaplanır; kullanım ayrıntıları eksikse rezerv belirsiz harcama olarak korunur. Proje bütçesi ve Planner harcaması birlikte kontrol edilir. [Resmî fiyatlandırma](https://developers.openai.com/api/docs/pricing) ve [görsel üretim rehberi](https://developers.openai.com/api/docs/guides/image-generation).
 - Ekran bazındaki onaylar proje kaydında saklanır. Ana sayfa onaylandıktan sonra Ayarlar onu; Ayarlar da onaylandıktan sonra Kayıt ekranı ikisini referans alır. Üretimde onaylı Ana sayfa ve onay sırasına göre son iki güncel diğer ekran kullanılır; en fazla üç benzersiz PNG gönderilir. Diğer ekranların onayları proje kaydında korunur. Onaylanmamış, devre dışı, eski sürüme ait veya yeniden üretilmiş bir ekranın eski taslağı kullanılmaz. Üretilen ekranın kendisi referans listesinden çıkarılır.
 - İlk görsel metinden üretilir; referans varsa onaylı PNG dosyaları [Images Edits API](https://developers.openai.com/api/reference/resources/images/methods/edit) isteğine eklenir. Renk, tipografi, ikonlar, boşluklar, butonlar ve ortak gezinme bileşenlerinin korunması istenir. Üçten fazla referans API çağrısından önce reddedilir; tüm ekranları içeren pafta oluşturulmaz. Görsel iş kaydı kullanılan referans kimliklerini içerir. Eksik referans dosyası ücretli istekten önce hata verir.
-- Bir ekranın aynı proje sürümünde ilk üretim + iki manuel yeniden üretim hakkı vardır. Otomatik tekrar yoktur. Değişiklik isteği yeni bir taslak üretir; önceki dosyalar korunur. Referans kullanımı tutarlılığı yönlendirir; sonuçlar yine kullanıcı tarafından incelenip onaylanır.
+- Bir ekran için yeni taslak sayısı sınırlı değildir; her üretim elle istenir ve proje bütçesinden düşülür. Otomatik tekrar yoktur. Değişiklik isteği yeni bir taslak üretir; önceki dosyalar korunur. Referans kullanımı tutarlılığı yönlendirir; sonuçlar yine kullanıcı tarafından incelenip onaylanır.
 - Görseller ve iş kayıtları workspace/design-images içinde tutulur ve projenin private GitHub deposuyla paylaşılır (bkz. GITHUB-SYNC.md). Sayfa yenileme yeniden ücretli çağrı başlatmaz.
 - Her ekranın en güncel başarılı görseli incelenmeden toplu onay verilemez. Onay kaynak görsel kimliklerini kaydeder, proje sürümünü artırır ve geliştirmeyi açar. Proje değişince eski görsel onayı geçersiz kalır.
 - Onaylanan görseller Expo çıktısındaki design-references klasörüne ve proje belleğine referans olarak aktarılır. **Geliştirme sayfasındaki Builder bu görselleri referans alır.** Görsel üzerindeki metin ve ikonlar da uygulama kodu değildir.
@@ -127,8 +127,8 @@ Tasarım sayfasının ana görünümü artık AI görsel galerisidir. Seçili he
 ## Görsel referanslı Builder
 
 - Geliştirme → Onaylı tasarımları kodla: her seçili ekran ayrı bir Responses API görevidir. Göreve yalnızca ilgili görsel, ekran dosyası, küçük ortak arayüzler ve proje özeti gönderilir.
-- Çıktı ayrı bir Expo klasöründe oluşturulur. Her ekranın ardından gerçek TypeScript ve ESLint çalışır; ilk hatada durur. Elle en fazla iki retry; geçen ekranlar tekrar üretilmez.
-- Çağrı başına $0.08 rezerv, ekran başına $0.24 sınır. Ortak proje bütçesi Planner/görsel/Builder maliyetlerini içerir. Belirsiz ücretler korunur.
+- Çıktı ayrı bir Expo klasöründe oluşturulur. Her ekranın ardından gerçek TypeScript ve ESLint çalışır; ilk hatada durur. Elle yeniden deneme sınırsızdır; geçen ekranlar tekrar üretilmez.
+- Çağrı başına $0.08 rezerv; otomatik tekrarlar ekran başına $0.24 ile sınırlıdır, elle tekrarlarda yalnızca proje bütçesi geçerlidir. Ortak proje bütçesi Planner/görsel/Builder maliyetlerini içerir. Belirsiz ücretler korunur.
 - İşler workspace/builder içinde kalıcıdır. Yeniden başlatma otomatik API çağrısı yapmaz. Eski çıktı klasörleri korunur.
 - Model yalnızca belirlenen ekran TSX dosyasını değiştirebilir; paket, kurulum komutu ve kontrol yapılandırmalarını değiştiremez. Kontroller ekran kodunu çalıştırmaz.
 - Bu sürüm tasarım uygulaması ve mevcut yerel kayıt işlemleriyle sınırlıdır. Gerçek authentication, yeni backend entegrasyonları, görseldeki özgün illüstrasyonlar ve APK üretimi garanti edilmez. Kod kontrollerinin geçmesi görsel uyum veya cihaz testi anlamına gelmez.
@@ -144,7 +144,9 @@ Cihaz onayı `workspace/previews` içinde kaynak işine ve kaynak dosyalarının
 
 Geliştirme, Testler ve Derleme sayfalarında **AI ile değişiklik iste** alanı vardır. Kontrolleri geçmiş kaynak sürüm ve açık ekran seçilir; en fazla 2000 karakterlik istek tek Builder görevine gider. Hem şablon çıktıları hem görselden üretilmiş ekranlar desteklenir. Referans görsel yoksa mevcut ekran tasarımı esas alınır.
 
-Revizyon, kaynak dosyaları yeni iş klasörüne kopyalar; eski çıktıya dokunmaz. Yalnızca seçilen ekran dosyası AI tarafından değiştirilir. TypeScript/ESLint başarısızsa aday ekran geri alınır. Her görev için mevcut $0.24 sınırı, $0.08 rezervasyon ve en fazla üç deneme uygulanır; otomatik retry yoktur. İş kimliği yinelenen gönderimleri engeller. Kurulum dosyaları, bağımlılıklar ve ortak modüller AI tarafından düzenlenmez.
+Ekran listesindeki **Uygulama geneli** seçeneği birden fazla ekranı veya ortak işlevleri etkileyen istekler içindir. Önce tek bir görev `src/features/*` modüllerini (ve gerekiyorsa RLS içeren migration'ı) günceller; mevcut dışa aktarılan sözleşmeler korunur ve TypeScript/ESLint geçmezse değişiklik geri alınır. Aynı görev değişmesi gereken ekranları seçer; her ekran ardından kendi talimatıyla ayrı bir ekran görevi olarak yeniden kodlanır. Derleme sayfasındaki önizleme geri bildirimi de bu seçeneği kullanabilir.
+
+Revizyon, kaynak dosyaları yeni iş klasörüne kopyalar; eski çıktıya dokunmaz. Yalnızca seçilen ekran dosyası AI tarafından değiştirilir. TypeScript/ESLint başarısızsa aday ekran geri alınır. Her çağrı için $0.08 rezervasyon ayrılır; elle yeniden deneme sayısı sınırsızdır ve yalnızca proje bütçesiyle sınırlanır. İş kimliği yinelenen gönderimleri engeller. Kurulum dosyaları, bağımlılıklar ve ortak modüller AI tarafından düzenlenmez.
 
 Başarılı revizyonlar sürüm seçicisinde görünür; eski sürüme dönmek mümkündür. Yeni sürümün Expo önizlemesi ve kullanıcı onayı ayrı alınır. EAS build kendiliğinden başlamaz. API: GET/POST `/api/revisions`; iş kayıtları mevcut `workspace/builder` dizinindedir. Structured Outputs biçimi: https://developers.openai.com/api/docs/guides/structured-outputs
 
@@ -164,9 +166,9 @@ APK hazır olduktan sonra kullanıcı gerçek Android cihaz testini ayrıca onay
 
 ### Geliştirme görevlerinde yeniden deneme
 
-Uygulama Builder görevleri ilk çağrıdan sonra en fazla iki otomatik tekrar yapar. Başarılı görevler tekrar çalışmaz; önceki hata tanısı sonraki çağrıya eklenir. Bütçe veya yerel hazırlık engellerinde ücretli tekrar yapılmaz. Başarısızlık sürerse panel model seçimi ve açık onay ister. Her onay yalnızca başarısız görev için bir ek denemeye izin verir; eski onay farklı deneme sayısında kullanılamaz. Sayaç ve maliyet sıfırlanmaz. Tek ekran revizyonunun mevcut manuel tekrar davranışı korunur.
+Uygulama Builder görevleri ilk çağrıdan sonra en fazla iki otomatik tekrar yapar. Başarılı görevler tekrar çalışmaz; önceki hata tanısı sonraki çağrıya eklenir. Bütçe veya yerel hazırlık engellerinde ücretli tekrar yapılmaz. Başarısızlık sürerse panel model seçimi ve açık onay ister. Elle yeniden deneme sayısı sınırsızdır; her denemede ortak proje bütçesi kontrol edilir. Sayaç ve maliyet sıfırlanmaz.
 
-Manuel seçenekler GPT-6 Luna ve GPT-4.1 mini. Model isteğe aktarılır; GPT-4.1 mini için reasoning parametresi gönderilmez. Standard token fiyatları sırasıyla $0.10/$0.50 ve $0.40/$1.60 (1M giriş/çıkış); görev limiti $0.24 ve deneme rezervi $0.08 değişmedi. Manuel onay bütçe limitini aşmaz.
+Manuel seçenekler GPT-6 Luna ve GPT-4.1 mini. Model isteğe aktarılır; GPT-4.1 mini için reasoning parametresi gönderilmez. Standard token fiyatları sırasıyla $0.10/$0.50 ve $0.40/$1.60 (1M giriş/çıkış); otomatik tekrar limiti $0.24 ve deneme rezervi $0.08 değişmedi. Manuel onay proje bütçesini aşmaz.
 Kaynaklar: https://developers.openai.com/api/docs/models/gpt-6-luna ve https://developers.openai.com/api/docs/models/gpt-4.1-mini (25 Eylül 2026).
 
 ### Üretilen uygulamaların GitHub paylaşımı
@@ -183,4 +185,4 @@ Tüm projeler listesindeki **Projeyi sil** düğmesi proje adını yazarak onay 
 
 Veri modeli ve uygulama işlevlerinin varsayılan modeli GPT-5 mini (medium reasoning); ekran üretimi GPT-6 Luna olarak kalır. Son reddedilen aday varsa yeniden deneme yalnızca gerekli feature dosyalarının değişikliklerini ister. Worker değişmeyen dosyaları, SQL'i, kabul testlerini ve kapsam kaydını koruyarak sonucu birleştirir; tüm iş kuralı/TypeScript/ESLint kontrolleri tekrar çalışır. Hata halinde aday yine geri alınır. Strict ve noUncheckedIndexedAccess kuralları modele açıkça aktarılır.
 
-Görev bağlamı 80 KB ile sınırlıdır. İlk üretim en fazla 16.000, hedefli onarım 10.000 çıkış token'ı ister (reasoning dahil). Görev limiti $0.24 ve deneme rezervi $0.08 değişmedi; belirsiz ücret sıfır kabul edilmez. GPT-5 mini Standard fiyatı 1M token başına $0.25 giriş / $2 çıkış: https://developers.openai.com/api/docs/models/gpt-5-mini (26 Eylül 2026). Eski görevlerin geçmiş model/maliyet kayıtları korunur; manuel onay ekranında GPT-5 mini seçilebilir. Model değişimi hatasız kod veya cihaz testi garantisi değildir.
+Görev bağlamı 80 KB ile sınırlıdır. İlk üretim en fazla 16.000, hedefli onarım 10.000 çıkış token'ı ister (reasoning dahil). Otomatik tekrar limiti $0.24 ve deneme rezervi $0.08 değişmedi; belirsiz ücret sıfır kabul edilmez. GPT-5 mini Standard fiyatı 1M token başına $0.25 giriş / $2 çıkış: https://developers.openai.com/api/docs/models/gpt-5-mini (26 Eylül 2026). Eski görevlerin geçmiş model/maliyet kayıtları korunur; manuel onay ekranında GPT-5 mini seçilebilir. Model değişimi hatasız kod veya cihaz testi garantisi değildir.

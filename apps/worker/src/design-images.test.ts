@@ -240,7 +240,7 @@ test("home then settings then registration accumulate only approved current scre
     await rm(root, { recursive: true, force: true });
   }
 });
-test("image requests are idempotent; history, costs, latest approval and retry cap are enforced", async () => {
+test("image requests are idempotent; history, costs and latest approval are enforced without a retry cap", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "design-test-"));
   try {
     let calls = 0;
@@ -295,17 +295,15 @@ test("image requests are idempotent; history, costs, latest approval and retry c
       expectedLatestId: next.id,
     });
     await finish(m);
-    await assert.rejects(
-      m.start({
-        ...request,
-        requestId: randomUUID(),
-        expectedLatestId: m.list(project.id).at(-1)!.id,
-      }),
-      /iki yeniden/,
-    );
-    assert.equal(calls, 3);
-    assert.equal(m.list(project.id).length, 3);
-    assert.ok(Math.abs(m.totalCost(project.id) - 0.14) < 1e-9);
+    await m.start({
+      ...request,
+      requestId: randomUUID(),
+      expectedLatestId: m.list(project.id).at(-1)!.id,
+    });
+    await finish(m);
+    assert.equal(calls, 4);
+    assert.equal(m.list(project.id).length, 4);
+    assert.ok(Math.abs(m.totalCost(project.id) - 0.18) < 1e-9);
     assert.equal(
       (
         await readFile(root + "/workspace/design-images/" + first.id + ".png")

@@ -175,7 +175,7 @@ export function EasPanel({
     <Card className="shadow-none">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle>2. Android APK · Expo EAS</CardTitle>
+          <CardTitle>3. Android APK · Expo EAS</CardTitle>
           {job && <Badge variant="secondary">{labels[job.status]}</Badge>}
         </div>
         <CardDescription>
@@ -235,8 +235,7 @@ export function EasPanel({
               !project.android ||
               pending ||
               active ||
-              current?.status === "finished" ||
-              attempts >= 3
+              current?.status === "finished"
             }
           >
             {pending
@@ -271,11 +270,6 @@ export function EasPanel({
             </Button>
           )}
         </div>
-        {attempts >= 3 && (
-          <p className="text-sm">
-            Bu çıktı için ilk deneme ve iki yeniden deneme hakkı kullanıldı.
-          </p>
-        )}
         {job?.status === "unknown" && (
           <div className="space-y-2 rounded-md border p-3">
             <p className="text-sm">
