@@ -137,7 +137,9 @@ export function ConnectionPanel({
       <CardContent className="mt-4 space-y-3 text-sm">
         {!sourceJobId && (
           <p>
-            Önce çalışan bir sürüm seçin veya revizyonun bitmesini bekleyin.
+            Bu bilgisayarda henüz çalışan bir kod çıktısı yok. GitHub
+            sürümlerini göster → main · güncel sürüm → Bu bilgisayara al ve
+            kontrol et.
           </p>
         )}
         {sourceJobId && available === false && (

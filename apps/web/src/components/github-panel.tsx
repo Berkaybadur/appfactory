@@ -112,10 +112,11 @@ export function GithubPanel({ project }: { project: Project }) {
             </CardTitle>
           </div>
           <CardDescription>
-            Tasarım görselleri PNG dosyaları olarak aynı private depoda
-            saklanır. Kod GitHub’a kendiliğinden gitmez; inceledikten sonra
-            aşağıdaki düğmeyle varsayılan dala (main) gönderirsiniz. Başka
-            bilgisayarda bu sürümü alarak devam edebilirsiniz. Yerel
+            Tasarım görselleri aynı private depoda saklanır. Kod kendiliğinden
+            GitHub’a gitmez; inceledikten sonra aşağıdaki düğmeyle main’e
+            gönderirsiniz. Diğer bilgisayarda aynı hesaba girin, GitHub
+            sürümlerini gösterin, main · güncel sürümü bu bilgisayara alın. Kod
+            gelmeden Supabase bağlantısı ve Expo önizlemesi boş görünür. Yerel
             değişikliklerin üzerine yazılmaz.
           </CardDescription>
         </CardHeader>

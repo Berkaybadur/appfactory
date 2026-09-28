@@ -47,25 +47,28 @@ export function RevisionPanel({
   const screens = getScreens(getSpecification(project)).filter(
     (s) => s.enabled,
   );
-  const ancestors = new Set(sourceJobId ? [sourceJobId] : []);
-  const current = jobs.filter((j) => {
-    if (
-      !j.change ||
-      !sameSpecification(j.project, project) ||
-      !ancestors.has(j.change.sourceJobId)
-    )
-      return false;
-    ancestors.add(j.id);
-    return true;
+  const matching = jobs.filter(
+    (j) => j.change && sameSpecification(j.project, project),
+  );
+  const root =
+    sourceJobId ??
+    matching.filter((j) => j.status === "ready").at(-1)?.id ??
+    null;
+  const ancestors = new Set(root ? [root] : []);
+  const current = matching.filter((j) => {
+    if (j.id === root || ancestors.has(j.change!.sourceJobId)) {
+      ancestors.add(j.id);
+      return true;
+    }
+    return false;
   });
   const ready = current.filter((j) => j.status === "ready");
   const active = current.some((j) => j.status === "running");
   const latest = current.at(-1);
   const selectedId =
-    selected &&
-    (selected === sourceJobId || ready.some((j) => j.id === selected))
+    selected && (selected === root || ready.some((j) => j.id === selected))
       ? selected
-      : (ready.at(-1)?.id ?? sourceJobId);
+      : (ready.at(-1)?.id ?? root);
   const prefix =
     section === "build"
       ? issueKind === "bug"
@@ -420,12 +423,18 @@ export function RevisionPanel({
                     requestId.current = null;
                   }}
                 >
-                  <option value={sourceJobId ?? ""}>İlk çalışan çıktı</option>
-                  {ready.map((j, i) => (
-                    <option key={j.id} value={j.id}>
-                      Revizyon {i + 1} · {j.tasks[0]?.name}
-                    </option>
-                  ))}
+                  <option value={root ?? ""}>
+                    {sourceJobId
+                      ? "İlk çalışan çıktı"
+                      : "GitHub’dan alınan sürüm"}
+                  </option>
+                  {ready
+                    .filter((j) => j.id !== root)
+                    .map((j, i) => (
+                      <option key={j.id} value={j.id}>
+                        Revizyon {i + 1} · {j.tasks[0]?.name}
+                      </option>
+                    ))}
                 </select>
               </label>
             )}

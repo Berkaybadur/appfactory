@@ -152,7 +152,8 @@ export function PreviewPanel({
         <CardContent className="space-y-4">
           {!sourceJobId && (
             <p className="text-sm">
-              Önce güncel projenin üretimini ve kod kontrollerini tamamlayın.
+              Bu bilgisayarda önizlenecek kod yok. Yukarıdan GitHub sürümlerini
+              gösterip main · güncel sürümü bu bilgisayara alın.
             </p>
           )}
           {occupied && (

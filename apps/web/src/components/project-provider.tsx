@@ -28,6 +28,7 @@ import {
   type SpecificationSection,
   storedProjectsSchema,
   generationJobSchema,
+  builderJobSchema,
   type Project,
   type ProjectInput,
   type GenerationJob,
@@ -431,6 +432,12 @@ function create(input: ProjectInput) {
   return id;
 }
 async function restoreLocalProject(id: string) {
+  const projects = currentProjects();
+  if (projects.some((project) => project.id === id)) {
+    snapshot = { projects, ready: true, error: null };
+    emit();
+    return;
+  }
   const response = await fetch(
     `/api/jobs?projectId=${encodeURIComponent(id)}`,
     {
@@ -439,23 +446,35 @@ async function restoreLocalProject(id: string) {
   );
   const data = await response.json();
   if (!response.ok) throw new Error(data.error ?? "Yerel proje alınamadı.");
-  if (!data.job) throw new Error("Bu proje için yerel iş kaydı bulunamadı.");
-  const job = generationJobSchema.parse(data.job);
-  if (job.projectId !== id || job.project.id !== id)
-    throw new Error("Yerel proje kaydı eşleşmiyor.");
-  const projects = currentProjects();
-  // Never replace a project already present in this browser.
-  if (projects.some((project) => project.id === id)) {
-    snapshot = { projects, ready: true, error: null };
-    emit();
-    return;
+  let restored: Project;
+  if (data.job) {
+    const job = generationJobSchema.parse(data.job);
+    if (job.projectId !== id || job.project.id !== id)
+      throw new Error("Yerel proje kaydı eşleşmiyor.");
+    restored = {
+      ...job.project,
+      stage: job.status === "ready" ? "tests" : job.project.stage,
+    };
+  } else {
+    const builderResponse = await fetch(
+      `/api/builder?projectId=${encodeURIComponent(id)}`,
+      { cache: "no-store" },
+    );
+    const builderData = await builderResponse.json();
+    if (!builderResponse.ok)
+      throw new Error(builderData.error ?? "Yerel proje alınamadı.");
+    const raw: unknown[] = Array.isArray(builderData.jobs)
+      ? builderData.jobs
+      : [];
+    const jobs = raw.map((j) => builderJobSchema.parse(j));
+    const source = jobs.filter((j) => j.project.id === id).at(-1);
+    if (!source)
+      throw new Error(
+        "Bu tarayıcıda proje yok. Aynı hesaba giriş yapın; ardından Derleme’den GitHub’daki main sürümünü bu bilgisayara alın.",
+      );
+    restored = source.project;
   }
-  const restored: Project = {
-    ...job.project,
-    stage: job.status === "ready" ? "tests" : job.project.stage,
-  };
-  const next = [restored, ...projects];
-  persistProjects(next);
+  persistProjects([restored, ...projects]);
 }
 function advance(id: string, event: WorkflowEvent) {
   if (event === "APPROVE_DESIGN")

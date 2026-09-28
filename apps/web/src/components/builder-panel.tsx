@@ -93,6 +93,7 @@ export function BuilderPanel({
 }) {
   const [job, setJob] = useState<BuilderJob | null>(null);
   const [history, setHistory] = useState<BuilderJob[]>([]);
+  const [output, setOutput] = useState<BuilderJob | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [sending, setSending] = useState(false);
@@ -124,8 +125,19 @@ export function BuilderPanel({
               j.mode === "application" &&
               getSpecification(j.project).revision === revision,
           ) ?? null;
+        const readyOutputs = jobs.filter(
+          (j) => j.status === "ready" && sameSpecification(project, j.project),
+        );
         setJob(current);
         setHistory(jobs.filter((j) => j.id !== current?.id));
+        setOutput(
+          (current?.status === "ready" &&
+          sameSpecification(project, current.project)
+            ? current
+            : null) ??
+            readyOutputs.at(-1) ??
+            null,
+        );
         setEnabled(data.enabled === true);
         setLoaded(true);
         setError("");
@@ -144,7 +156,7 @@ export function BuilderPanel({
       disposed = true;
       clearInterval(timer);
     };
-  }, [project.id, revision, syncImageCost, syncBuilder]);
+  }, [project, revision, syncImageCost, syncBuilder]);
   async function start() {
     setSending(true);
     setError("");
@@ -178,6 +190,8 @@ export function BuilderPanel({
   }
   const stale = job && !sameSpecification(project, job.project);
   const busy = job?.status === "running";
+  const outputId = output?.id ?? null;
+  const view = output ?? job;
   return (
     <div className="space-y-5">
       <h2 className="text-lg font-semibold">
@@ -193,7 +207,7 @@ export function BuilderPanel({
       <RevisionPanel
         section={section}
         project={project}
-        sourceJobId={job?.status === "ready" && !stale ? job.id : null}
+        sourceJobId={outputId}
       />
       {section === "development" && (
         <details className="my-4 rounded-lg border bg-white p-6" open>
@@ -234,6 +248,13 @@ export function BuilderPanel({
             {stale && (
               <p className="text-sm text-destructive">
                 Bu çıktı eski içeriğe ait. Güncel tasarımı onaylayın.
+              </p>
+            )}
+            {!job && output && (
+              <p className="text-sm">
+                GitHub’dan alınan sürüm bu bilgisayarda hazır. Uygulamayı baştan
+                üretmeyin. Supabase bağlantısı ve Expo önizlemesi Derleme
+                sayfasındadır.
               </p>
             )}
             {!enabled && loaded && (
@@ -288,6 +309,7 @@ export function BuilderPanel({
                 sending ||
                 busy ||
                 job?.status === "ready" ||
+                (!job && !!output) ||
                 !!stale
               }
               onClick={() => void start()}
@@ -296,22 +318,22 @@ export function BuilderPanel({
                 ? "Başlatılıyor…"
                 : busy
                   ? "Uygulama hazırlanıyor…"
-                  : job?.status === "ready"
+                  : job?.status === "ready" || (!job && !!output)
                     ? "Expo kod kontrolleri tamamlandı"
                     : job?.status === "failed"
                       ? "Başarısız görevden devam et"
                       : "Uygulama işlevlerini ve ekranları üret"}
             </Button>
-            {(sending || job) && (
-              <OperationProgress {...builderProgress(sending ? null : job)} />
+            {(sending || view) && (
+              <OperationProgress {...builderProgress(sending ? null : view)} />
             )}
-            {job && (
+            {view && (
               <p className="text-xs text-muted-foreground">
-                {job.tasks.filter((t) => t.status === "ready").length}/
-                {job.tasks.length} görev · Builder maliyeti: $
-                {job.tasks.reduce((n, t) => n + t.costUsd, 0).toFixed(6)} ·
+                {view.tasks.filter((t) => t.status === "ready").length}/
+                {view.tasks.length} görev · Builder maliyeti: $
+                {view.tasks.reduce((n, t) => n + t.costUsd, 0).toFixed(6)} ·
                 Ayrılan / belirsiz: $
-                {job.tasks
+                {view.tasks
                   .reduce((n, t) => n + t.reservedUsd + t.uncertainCostUsd, 0)
                   .toFixed(6)}
               </p>
@@ -319,7 +341,7 @@ export function BuilderPanel({
           </div>
         </details>
       )}
-      {job?.implementation && (
+      {view?.implementation && (
         <div className="my-4 rounded-lg border bg-white p-6">
           <details>
             <summary className="cursor-pointer [&>[data-slot=card-header]]:inline-grid [&>[data-slot=card-header]]:w-[calc(100%-1.5rem)] [&>[data-slot=card-header]]:px-0 [&>[data-slot=card-header]]:align-top">
@@ -331,10 +353,10 @@ export function BuilderPanel({
                 </div>
                 <CardDescription>
                   <p className="text-sm text-muted-foreground mb-3">
-                    {job.implementation.summary}
+                    {view.implementation.summary}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {job.implementation.checks.length} iş kuralı örneği
+                    {view.implementation.checks.length} iş kuralı örneği
                     doğrulandı. Bu kontroller cihaz ve canlı sunucu testinin
                     yerine geçmez.
                   </p>
@@ -343,17 +365,17 @@ export function BuilderPanel({
             </summary>
             <div className="mt-4 space-y-3 text-sm">
               <ul className="space-y-3">
-                {job.implementation.coverage.map((item, index) => (
+                {view.implementation.coverage.map((item, index) => (
                   <CoverageItem key={index} item={item} />
                 ))}
               </ul>
-              {job.implementation.setup.length > 0 && (
+              {view.implementation.setup.length > 0 && (
                 <div className="rounded-md border border-amber-300 p-4">
                   <h3 className="mb-2 text-sm font-medium">
                     Uygulamayı kullanmadan önce
                   </h3>
                   <ul className="list-disc space-y-2 pl-5 text-sm">
-                    {job.implementation.setup.map((step, index) => (
+                    {view.implementation.setup.map((step, index) => (
                       <li key={index}>{step}</li>
                     ))}
                   </ul>
@@ -366,7 +388,7 @@ export function BuilderPanel({
               <details className="text-sm">
                 <summary>İş kuralı kontrolleri</summary>
                 <ul className="mt-2 list-disc pl-5">
-                  {job.implementation.checks.map((check, index) => (
+                  {view.implementation.checks.map((check, index) => (
                     <li key={index}>
                       {check.name} · {check.passed ? "Geçti" : "Başarısız"}
                     </li>
@@ -375,7 +397,7 @@ export function BuilderPanel({
               </details>
             </div>
           </details>
-          {job.implementation.coverage.slice(-1).map((item) => (
+          {view.implementation.coverage.slice(-1).map((item) => (
             <ul key="latest-coverage" className="mt-4 peer-open:hidden">
               <CoverageItem item={item} />
             </ul>
@@ -391,10 +413,10 @@ export function BuilderPanel({
             sekmesinden manuel yeniden deneyebilirsiniz.
           </p>
           {error && <p role="alert">{error}</p>}
-          {!job && (
+          {!view && (
             <p>
               {loaded
-                ? "Bu sürüm için henüz Builder kontrol sonucu yok."
+                ? "Bu sürüm için henüz Builder kontrol sonucu yok. GitHub’dan main sürümünü bu bilgisayara alın."
                 : "Kontroller yükleniyor…"}
             </p>
           )}
@@ -406,9 +428,9 @@ export function BuilderPanel({
         </Card>
       )}
       {section !== "build" &&
-        job?.tasks.map((task) => (
+        view?.tasks.map((task) => (
           <TaskCard
-            key={`${job.id}:${task.kind ?? "screen"}:${task.screenId}:${section === "development" ? task.status : "tests"}`}
+            key={`${view.id}:${task.kind ?? "screen"}:${task.screenId}:${section === "development" ? task.status : "tests"}`}
             collapsible={section === "development"}
             running={task.status === "running"}
             header={
@@ -452,25 +474,26 @@ export function BuilderPanel({
             </CardContent>
           </TaskCard>
         ))}
-      {section === "tests" && job?.setupLog && (
+      {section === "tests" && view?.setupLog && (
         <details>
           <summary className="cursor-pointer text-sm">Expo kurulumu</summary>
           <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap text-xs">
-            {job.setupLog}
+            {view.setupLog}
           </pre>
         </details>
       )}
-      {section !== "build" && job?.status === "ready" && !stale && (
-        <Button asChild variant="outline">
-          <Link
-            href={`/projects/${project.id}/${section === "development" ? "tests" : "build"}`}
-          >
-            {section === "development"
-              ? "Kontrol sonuçlarına git"
-              : "QR önizleme ve derlemeye git"}
-          </Link>
-        </Button>
-      )}
+      {section !== "build" &&
+        ((job?.status === "ready" && !stale) || outputId) && (
+          <Button asChild variant="outline">
+            <Link
+              href={`/projects/${project.id}/${section === "development" ? "tests" : "build"}`}
+            >
+              {section === "development"
+                ? "Kontrol sonuçlarına git"
+                : "QR önizleme ve derlemeye git"}
+            </Link>
+          </Button>
+        )}
       {section === "development" && history.length > 0 && (
         <details>
           <summary className="cursor-pointer text-sm">

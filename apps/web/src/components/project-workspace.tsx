@@ -42,8 +42,9 @@ export function ProjectWorkspace({ children }: { children: React.ReactNode }) {
       <div className="py-16 text-center">
         <h1 className="mb-2 text-xl font-semibold">Proje bulunamadı</h1>
         <p className="mb-5 text-sm text-muted-foreground">
-          Bu proje bu tarayıcıda kayıtlı değil. Bilgisayardaki mevcut iş
-          kaydından projeyi ekleyebilirsiniz.
+          Bu proje bu tarayıcıda kayıtlı değil. Aynı hesaba giriş yapıp ana
+          sayfadan açın. Kod çıktısı ayrıca Derleme → GitHub sürümlerini göster
+          → main · güncel sürüm → Bu bilgisayara al ile gelir.
         </p>
         <Button
           className="mb-5"
