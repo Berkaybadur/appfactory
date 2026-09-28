@@ -111,10 +111,10 @@ export function GithubPanel({ project }: { project: Project }) {
           </div>
           <CardDescription>
             Tasarım görselleri PNG dosyaları olarak aynı private depoda
-            saklanır. Kod ve görev kaydı varsayılan dala (main) gönderilir; her
-            çıktı için yeni dal açılmaz. Üretim bitince veya durunca otomatik
-            yüklenir. Başka bilgisayarda bu sürümü alarak devam edebilirsiniz.
-            Yerel değişikliklerin üzerine yazılmaz.
+            saklanır. Kod GitHub’a kendiliğinden gitmez; inceledikten sonra
+            aşağıdaki düğmeyle varsayılan dala (main) gönderirsiniz. Başka
+            bilgisayarda bu sürümü alarak devam edebilirsiniz. Yerel
+            değişikliklerin üzerine yazılmaz.
           </CardDescription>
         </CardHeader>
       </summary>

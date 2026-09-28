@@ -173,7 +173,7 @@ Kaynaklar: https://developers.openai.com/api/docs/models/gpt-6-luna ve https://d
 
 ### Üretilen uygulamaların GitHub paylaşımı
 
-Builder çıktıları ve görev kayıtları private GitHub depolarına otomatik gönderilebilir; başka bilgisayarda indirilip yerel kontrollerden geçirilerek devam edilir. Kurulum, PAT izinleri, çakışma davranışı ve kapsam için [GitHub paylaşım rehberi](GITHUB-SYNC.md).
+Builder çıktıları ve görev kayıtları **Yerel çıktıları GitHub’a gönder** ile private depoya yüklenir; başka bilgisayarda indirilip yerel kontrollerden geçirilerek devam edilir. Kurulum, PAT izinleri, çakışma davranışı ve kapsam için [GitHub paylaşım rehberi](GITHUB-SYNC.md).
 
 ### Proje silme
 

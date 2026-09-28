@@ -77,6 +77,8 @@ test("text-only revision keeps structured output without an image payload", asyn
       const body = JSON.parse(String(init?.body));
       assert.equal(body.input[0].content.length, 1);
       assert.equal(body.text.format.strict, true);
+      assert.equal(body.max_output_tokens, 16000);
+      assert.equal(body.reasoning.effort, "low");
       assert.match(body.instructions, /REVISE_SCREEN/);
       return Response.json({
         status: "completed",
@@ -98,5 +100,22 @@ test("text-only revision keeps structured output without an image payload", asyn
         ],
       });
     },
+  );
+});
+
+test("incomplete model output reports a token-limit error with usage cost", async () => {
+  await assert.rejects(
+    runBuilder(input, "test", async () =>
+      Response.json({
+        status: "incomplete",
+        incomplete_details: { reason: "max_output_tokens" },
+        usage: { input_tokens: 1000, output_tokens: 10000 },
+        output: [],
+      }),
+    ),
+    (error: unknown) =>
+      error instanceof PlannerError &&
+      error.message.includes("token") &&
+      error.costUsd === 0.0051,
   );
 });

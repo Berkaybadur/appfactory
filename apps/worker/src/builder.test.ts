@@ -404,10 +404,14 @@ test("revision failed validation restores code and allows further manual retries
       "test",
       async (input) => {
         calls++;
+        const parsed = JSON.parse(input.context);
         inputs.push({
-          rejectedCode: JSON.parse(input.context).rejectedCode,
+          rejectedCode: parsed.rejectedCode,
           model: input.model,
         });
+        assert.equal(parsed.previousDiagnostics, undefined);
+        assert.equal(parsed.rejectedCode, undefined);
+        assert.equal(parsed.projectMemory?.tasks, undefined);
         return {
           output: {
             ...output,
@@ -451,9 +455,6 @@ test("revision failed validation restores code and allows further manual retries
       await finish(m);
     }
     assert.equal(calls, 4);
-    assert.equal(inputs[0]?.rejectedCode, undefined);
-    assert.equal(inputs[1]?.rejectedCode, original + "\n// rejected");
-    assert.equal(inputs[2]?.model, undefined);
     assert.equal(inputs[3]?.model, "gpt-5-mini");
     assert.equal(job.tasks[0]?.attempts, 4);
     assert.ok(Math.abs((job.tasks[0]?.costUsd ?? 0) - 0.04) < 1e-9);

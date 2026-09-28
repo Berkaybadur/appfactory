@@ -55,6 +55,7 @@ import {
   featureContext,
   applicationModules,
   writeFeatureCandidate,
+  fitBuilderContext,
 } from "./feature-build";
 import {
   validateFeatures,
@@ -496,7 +497,7 @@ export class BuilderManager {
   ) {
     await ensureDemoSupport(this.root, cwd);
     let previousCandidate;
-    if (task.attempts > 0) {
+    if (!job.change && task.attempts > 0) {
       try {
         const file = await this.checkedFile(
           path.join(this.root, "workspace/builder"),
@@ -516,14 +517,16 @@ export class BuilderManager {
           throw error;
       }
     }
-    const context = await featureContext(
-      cwd,
-      job.project,
-      task.log,
-      previousCandidate,
+    const context = fitBuilderContext(
+      JSON.parse(
+        await featureContext(
+          cwd,
+          job.project,
+          job.change ? "" : task.log,
+          previousCandidate,
+        ),
+      ) as Record<string, unknown>,
     );
-    if (Buffer.byteLength(context) > 80000)
-      throw new Error("Uygulama bağlamı görev sınırını aşıyor.");
     task.status = "running";
     task.attempts++;
     task.reservedUsd = builderReservationUsd;
@@ -630,7 +633,7 @@ export class BuilderManager {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    const context = JSON.stringify({
+    const context = fitBuilderContext({
       task: "REVISE_APPLICATION",
       changeRequest: job.change!.instruction,
       projectMemory: {
@@ -648,10 +651,7 @@ export class BuilderManager {
       modules,
       migrationSql,
       compilerOptions: { strict: true, noUncheckedIndexedAccess: true },
-      previousDiagnostics: task.log.slice(-8000),
     });
-    if (Buffer.byteLength(context) > 80000)
-      throw new Error("Uygulama bağlamı görev sınırını aşıyor.");
     task.status = "running";
     task.attempts++;
     task.reservedUsd = builderReservationUsd;
@@ -863,59 +863,61 @@ export class BuilderManager {
         }
         const file = screenFile(task.screenId);
         const target = await this.checkedFile(cwd, file);
-        const modules: Record<string, string> = {};
-        for (const name of [
-          "records.tsx",
-          "screens.ts",
-          "record-form.tsx",
-          "ui.tsx",
-          "theme.json",
-          "project.json",
-        ]) {
-          modules["src/" + name] = await readFile(
-            await this.checkedFile(cwd, "src/" + name),
-            "utf8",
-          );
-        }
-        const originalCode = await readFile(target, "utf8");
         const applicationMode =
           job.mode === "application" ||
           (job.change &&
             (await lstat(path.join(cwd, "src/features/store.tsx"))
               .then(() => true)
               .catch(() => false)));
-        if (applicationMode)
-          Object.assign(modules, await applicationModules(cwd));
+        const modules: Record<string, string> = {};
+        for (const name of applicationMode
+          ? ["screens.ts", "ui.tsx", "theme.json", "project.json"]
+          : [
+              "records.tsx",
+              "screens.ts",
+              "record-form.tsx",
+              "ui.tsx",
+              "theme.json",
+              "project.json",
+            ]) {
+          modules["src/" + name] = await readFile(
+            await this.checkedFile(cwd, "src/" + name),
+            "utf8",
+          );
+        }
+        const originalCode = await readFile(target, "utf8");
+        if (applicationMode) {
+          const extras = await applicationModules(cwd);
+          delete extras["src/demo.tsx"];
+          Object.assign(modules, extras);
+        }
         const spec = getSpecification(job.project);
-        const rejectedCode =
-          task.status === "failed" && task.attempts > 0
-            ? await readFile(
-                path.join(
-                  this.root,
-                  "workspace/builder",
-                  `${job.id}-${task.screenId}-${task.attempts}.txt`,
-                ),
-                "utf8",
-              ).catch(() => undefined)
-            : undefined;
-        const contextData = {
+        const context = fitBuilderContext({
           task: job.change ? "REVISE_SCREEN" : "BUILD_SCREEN",
           applicationMode: !!applicationMode,
           changeRequest: task.instruction ?? job.change?.instruction,
           file,
-          projectMemory: {
-            name: job.project.name,
-            summary: spec.plan.summary,
-            idea: job.project.idea,
-            scope: spec.plan.scope,
-            tasks: job.project.plannerDraft?.tasks,
-            design: spec.design,
-          },
+          projectMemory: job.change
+            ? {
+                name: job.project.name,
+                summary: spec.plan.summary,
+                design: spec.design,
+              }
+            : {
+                name: job.project.name,
+                summary: spec.plan.summary,
+                idea: job.project.idea,
+                scope: spec.plan.scope,
+                tasks: job.project.plannerDraft?.tasks,
+                design: spec.design,
+              },
           screen: getScreens(spec).find((s) => s.id === task.screenId),
           enabledScreens: getScreens(spec).filter((s) => s.enabled),
-          notes: job.project.plannerDraft?.screenNotes.find(
-            (s) => s.screenId === task.screenId,
-          ),
+          notes: job.change
+            ? undefined
+            : job.project.plannerDraft?.screenNotes.find(
+                (s) => s.screenId === task.screenId,
+              ),
           modules,
           currentCode: originalCode,
           requirements: applicationMode
@@ -924,15 +926,11 @@ export class BuilderManager {
                 enabledRoutes: getScreens(spec)
                   .filter((s) => s.enabled)
                   .map((s) => screenFile(s.id)),
+                map: "Import AppMap from src/runtime/map. Never import react-native-maps.",
               }
             : screenRequirements(file),
-          previousDiagnostics: task.log.slice(-8000),
-        };
-        let context = JSON.stringify(
-          rejectedCode ? { ...contextData, rejectedCode } : contextData,
-        );
-        if (Buffer.byteLength(context) > 80000)
-          context = JSON.stringify(contextData);
+          ...(job.change ? {} : { previousDiagnostics: task.log.slice(-8000) }),
+        });
         let image: Buffer | undefined;
         try {
           image = await readFile(
@@ -948,8 +946,6 @@ export class BuilderManager {
           )
             throw error;
         }
-        if (Buffer.byteLength(context) > 80000)
-          throw new Error("Ekran bağlamı görev sınırını aşıyor.");
         task.status = "running";
         task.log = "";
         task.attempts++;

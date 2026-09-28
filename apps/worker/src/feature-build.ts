@@ -169,6 +169,60 @@ export async function featureContext(
   });
 }
 
+export const builderContextLimit = 80000;
+
+export function fitBuilderContext(
+  payload: Record<string, unknown>,
+  limit = builderContextLimit,
+) {
+  const size = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+  if (size(payload) <= limit) return JSON.stringify(payload);
+  const next: Record<string, unknown> = { ...payload };
+  delete next.rejectedCode;
+  delete next.previousCandidate;
+  if (size(next) <= limit) return JSON.stringify(next);
+  if (typeof next.previousDiagnostics === "string")
+    next.previousDiagnostics = next.previousDiagnostics.slice(-2000);
+  const memory = next.projectMemory;
+  if (memory && typeof memory === "object") {
+    const value = memory as Record<string, unknown>;
+    next.projectMemory = {
+      name: value.name,
+      summary: value.summary,
+      design: value.design,
+    };
+  }
+  delete next.notes;
+  if (Array.isArray(next.enabledScreens))
+    next.enabledScreens = (
+      next.enabledScreens as { id?: string; screenId?: string; name?: string }[]
+    ).map((screen) => ({
+      id: screen.id ?? screen.screenId,
+      name: screen.name,
+    }));
+  if (size(next) <= limit) return JSON.stringify(next);
+  const drop = [
+    "src/demo.tsx",
+    "src/runtime/map.tsx",
+    "src/records.tsx",
+    "src/record-form.tsx",
+    "src/runtime/runtime.ts",
+    "src/features/domain.ts",
+    "src/features/services.ts",
+  ];
+  if (next.modules && typeof next.modules === "object") {
+    const files = { ...(next.modules as Record<string, string>) };
+    for (const pathName of drop) {
+      delete files[pathName];
+      next.modules = files;
+      if (size(next) <= limit) return JSON.stringify(next);
+    }
+  }
+  delete next.migrationSql;
+  if (size(next) <= limit) return JSON.stringify(next);
+  throw new Error("Ekran bağlamı görev sınırını aşıyor.");
+}
+
 export async function applicationModules(cwd: string) {
   const files: Record<string, string> = {};
   for (const file of [

@@ -15,8 +15,36 @@ import {
 } from "./feature-code";
 import { BuilderManager } from "./builder";
 import { generateProject } from "@app-factory/generator";
-import { ensureDemoSupport } from "./feature-build";
+import { ensureDemoSupport, fitBuilderContext } from "./feature-build";
 import { PlannerError } from "@app-factory/ai";
+
+test("oversized screen context drops rejected code and unused modules instead of failing", () => {
+  const context = fitBuilderContext({
+    currentCode: "x".repeat(20000),
+    changeRequest: "Düzelt",
+    rejectedCode: "y".repeat(40000),
+    previousDiagnostics: "z".repeat(8000),
+    projectMemory: { name: "Test", idea: "i".repeat(5000), summary: "özet" },
+    modules: {
+      "src/demo.tsx": "d".repeat(5000),
+      "src/records.tsx": "r".repeat(5000),
+      "src/features/store.tsx": "export function useApp(){}",
+      "src/features/models.ts": "export type Spot = { id: string }",
+    },
+  });
+  const parsed = JSON.parse(context) as {
+    rejectedCode?: string;
+    currentCode: string;
+    modules: Record<string, string>;
+  };
+  assert.equal(parsed.rejectedCode, undefined);
+  assert.equal(parsed.currentCode.length, 20000);
+  assert.ok(Buffer.byteLength(context) <= 80000);
+  assert.equal(
+    parsed.modules["src/features/store.tsx"],
+    "export function useApp(){}",
+  );
+});
 
 test("legacy output receives missing demo modules once without replacing application code", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "legacy-demo-"));
@@ -194,6 +222,15 @@ test("feature output cannot write configuration, import host modules or skip ext
         true,
       ),
     /useApp/,
+  );
+  assert.throws(
+    () =>
+      validateApplicationCode(
+        'import MapView from "react-native-maps"; import {useApp} from "../src/features/store"; export default function Home(){ useApp(); return <MapView />; }',
+        "app/index.tsx",
+        true,
+      ),
+    /AppMap/,
   );
 });
 test("backend reporting is normalized without accepting missing setup or changing generated code", () => {

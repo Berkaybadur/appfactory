@@ -89,12 +89,6 @@ try {
   githubError =
     "GitHub bağlantısı kurulamadı. PAT ve GITHUB_OWNER ayarlarını kontrol edip worker'ı yeniden başlatın.";
 }
-builder.onSettled = async (job) => {
-  if (github) {
-    await syncDesignGithub(job.project.id, true);
-    await github.publish(job);
-  }
-};
 const designGithub = github ? new DesignAssetGithub(root, github) : null;
 async function syncDesignGithub(id: string, force = false) {
   deletion.assertAvailable(id);

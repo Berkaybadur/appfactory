@@ -90,7 +90,11 @@ export function validateApplicationCode(
             ...(screen ? ["expo-router"] : []),
           ].includes(name)
         )
-          throw new Error(`İzin verilmeyen paket: ${name}`);
+          throw new Error(
+            name === "react-native-maps"
+              ? "Harita için src/runtime/map içindeki AppMap kullanın; react-native-maps ekrana veya özellik dosyasına eklenemez."
+              : `İzin verilmeyen paket: ${name}`,
+          );
       }
     }
     ts.forEachChild(node, visit);
