@@ -4,38 +4,51 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { GithubSync, collectGithubFiles, portableFile } from "./github";
+import {
+  GithubSync,
+  collectGithubFiles,
+  portableFile,
+  githubRepoSlug,
+  githubRepoCandidates,
+} from "./github";
 import { type BuilderJob, type DesignImageJob } from "@app-factory/schemas";
 import { DesignAssetGithub, validateDesignPng } from "./design-github";
 import { BuilderManager } from "./builder";
 test("repository deletion verifies scope on ambiguous 404 and reports denied permissions", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "github-delete-"));
   let status = 204;
   let scopes = "";
   const routes: string[] = [];
-  const client = new GithubSync(
-    "unused",
-    "team",
-    "test-token",
-    async (url, init) => {
-      routes.push(new URL(String(url)).pathname);
-      assert.equal(init?.method, "DELETE");
-      return new Response(null, {
-        status,
-        headers: { "x-oauth-scopes": scopes },
-      });
-    },
-  );
-  await client.deleteProject("one");
-  status = 404;
-  await assert.rejects(client.deleteProject("one"), /doğrulanamadı/);
-  scopes = "repo, delete_repo";
-  await client.deleteProject("one");
-  status = 403;
-  await assert.rejects(client.deleteProject("one"), /Administration/);
-  assert.equal(client.busy, false);
-  assert.deepEqual(routes, Array(4).fill("/repos/team/appfactory-one"));
-  await assert.rejects(client.deleteProject("../other"));
-  assert.equal(routes.length, 4);
+  try {
+    const client = new GithubSync(
+      root,
+      "team",
+      "test-token",
+      async (url, init) => {
+        const method = init?.method ?? "GET";
+        routes.push(new URL(String(url)).pathname);
+        if (method === "GET") return new Response(null, { status: 404 });
+        assert.equal(method, "DELETE");
+        return new Response(null, {
+          status,
+          headers: { "x-oauth-scopes": scopes },
+        });
+      },
+    );
+    await client.deleteProject("one");
+    status = 404;
+    await assert.rejects(client.deleteProject("one"), /doğrulanamadı/);
+    scopes = "repo, delete_repo";
+    await client.deleteProject("one");
+    status = 403;
+    await assert.rejects(client.deleteProject("one"), /Administration/);
+    assert.equal(client.busy, false);
+    assert.deepEqual(routes, Array(8).fill("/repos/team/appfactory-one"));
+    await assert.rejects(client.deleteProject("../other"));
+    assert.equal(routes.length, 8);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 function mockGithub() {
   const blobs = new Map<string, Buffer>(),
@@ -43,8 +56,8 @@ function mockGithub() {
     commits = new Map<string, string>(),
     refs = new Map<string, string>([["main", "0".repeat(40)]]);
   const commitMeta = new Map<string, { tree: string; message: string }>();
-  let repo = false,
-    counter = 0;
+  const repos = new Map<string, { description?: string }>();
+  let counter = 0;
   const hash = () => (++counter).toString(16).padStart(40, "0");
   const transport: typeof fetch = async (url, init) => {
     const route = new URL(String(url)).pathname,
@@ -57,13 +70,30 @@ function mockGithub() {
     if (route === "/user") return Response.json({ login: "team" });
     if (route === "/user/repos") {
       assert.equal(body.private, true);
-      repo = true;
-      return Response.json({ private: true, default_branch: "main" });
+      repos.set(body.name, { description: body.description });
+      return Response.json({
+        private: true,
+        default_branch: "main",
+        name: body.name,
+        description: body.description,
+        html_url: `https://github.com/team/${body.name}`,
+      });
     }
-    if (route === "/repos/team/appfactory-test")
-      return repo
-        ? Response.json({ private: true, default_branch: "main" })
+    const repoMatch = /^\/repos\/team\/([^/]+)$/.exec(route);
+    if (repoMatch) {
+      const name = decodeURIComponent(repoMatch[1]!);
+      if (method === "DELETE") return new Response(null, { status: 204 });
+      const meta = repos.get(name);
+      return meta
+        ? Response.json({
+            private: true,
+            default_branch: "main",
+            name,
+            description: meta.description,
+            html_url: `https://github.com/team/${name}`,
+          })
         : new Response(null, { status: 404 });
+    }
     if (route.endsWith("/branches"))
       return Response.json(
         [...refs].map(([name, sha]) => ({ name, commit: { sha } })),
@@ -386,8 +416,11 @@ test("GitHub round trip across computers preserves tasks and costs, excludes sec
       uploadProgress,
       [...uploadProgress].sort((a, b) => a - b),
     );
-    assert.equal((await b.list("test")).jobs.length, 1);
-    assert.equal((await b.list("test")).jobs[0]?.branch, "main");
+    assert.equal((await b.list("test", () => {}, "Test")).jobs.length, 1);
+    assert.equal(
+      (await b.list("test", () => {}, "Test")).jobs[0]?.branch,
+      "main",
+    );
     assert.equal(
       [...cloud.refs.keys()].filter((name) =>
         /^factory-[a-f0-9-]{36}$/.test(name),
@@ -460,6 +493,41 @@ test("GitHub round trip across computers preserves tasks and costs, excludes sec
     assert.ok(!text.includes("secret logs"));
     assert.ok(text.includes("https://project.supabase.co"));
     assert.ok(text.includes("sb_publishable_abcdefghijklmnop"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("github repository names come from the project title", () => {
+  assert.equal(githubRepoSlug("Kampüs Rehberi"), "kampus-rehberi");
+  assert.equal(githubRepoSlug("  My App!! "), "my-app");
+  assert.deepEqual(githubRepoCandidates("abc", "Kampüs Rehberi"), [
+    "kampus-rehberi",
+    "kampus-rehberi-abc",
+    "appfactory-abc",
+  ]);
+});
+test("creating a repo uses the project name instead of the project id", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "github-named-"));
+  try {
+    const names: string[] = [];
+    const cloud = mockGithub();
+    const transport: typeof fetch = async (url, init) => {
+      if (new URL(String(url)).pathname === "/user/repos")
+        names.push(JSON.parse(String(init?.body ?? "{}")).name);
+      return cloud.transport(url, init);
+    };
+    const github = new GithubSync(root, "team", "test-token", transport);
+    await github.syncDesignFiles(
+      "proj-1",
+      true,
+      async () => new Map(),
+      "Kampüs Rehberi",
+    );
+    assert.deepEqual(names, ["kampus-rehberi"]);
+    assert.equal(
+      (await github.list("proj-1", () => {}, "Kampüs Rehberi")).url,
+      "https://github.com/team/kampus-rehberi",
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

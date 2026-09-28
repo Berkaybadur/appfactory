@@ -53,7 +53,10 @@ export function DesignGallery({ project }: { project: Project }) {
       fetching = true;
       try {
         const r = await fetch(
-          "/api/design-images?projectId=" + encodeURIComponent(project.id),
+          "/api/design-images?projectId=" +
+            encodeURIComponent(project.id) +
+            "&name=" +
+            encodeURIComponent(project.name),
           { cache: "no-store" },
         );
         const data = await r.json();
@@ -86,7 +89,7 @@ export function DesignGallery({ project }: { project: Project }) {
       active = false;
       clearInterval(timer);
     };
-  }, [project.id, syncImageCost]);
+  }, [project.id, project.name, syncImageCost]);
   const current = (id: string) =>
     jobs.filter((j) => j.revision === spec.revision && j.screenId === id);
   const busy = sending || jobs.some((j) => j.status === "running");
@@ -132,6 +135,51 @@ export function DesignGallery({ project }: { project: Project }) {
       setOperation(null);
     }
   };
+  const upload = async (screenId: string, file: File) => {
+    setOperation(screenId);
+    setSending(true);
+    setError("");
+    try {
+      if (
+        file.type !== "image/png" &&
+        !file.name.toLowerCase().endsWith(".png")
+      )
+        throw new Error("Yalnızca PNG dosyası yükleyin.");
+      if (file.size > 20_000_000)
+        throw new Error("PNG en fazla 20 MB olabilir.");
+      const pngBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = String(reader.result ?? "");
+          const comma = result.indexOf(",");
+          resolve(comma >= 0 ? result.slice(comma + 1) : result);
+        };
+        reader.onerror = () => reject(new Error("Dosya okunamadı."));
+        reader.readAsDataURL(file);
+      });
+      const r = await fetch("/api/design-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "upload",
+          project: { ...project, revisions: [] },
+          screenId,
+          requestId: crypto.randomUUID(),
+          expectedLatestId: current(screenId).at(-1)?.id ?? null,
+          pngBase64,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Yükleme başarısız.");
+      const j = designImageJobSchema.parse(data.job);
+      setJobs((previous) => [...previous.filter((x) => x.id !== j.id), j]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Yükleme başarısız.");
+    } finally {
+      setSending(false);
+      setOperation(null);
+    }
+  };
   const approve = async () => {
     setOperation("approve");
     setSending(true);
@@ -168,7 +216,8 @@ export function DesignGallery({ project }: { project: Project }) {
         <h2 className="text-lg font-semibold">Görsel Tasarım</h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
           Uygulamanın görünümüne gerçek görsel taslaklar üzerinden karar ver.
-          Her ekranı incele, değişiklik iste ve tasarımı onayla.
+          Her ekranı incele, AI ile üret veya kendi PNG tasarımını yükle, sonra
+          tasarımı onayla.
         </p>
       </div>
       <Card className="gap-3 p-5 shadow-none">
@@ -278,7 +327,11 @@ export function DesignGallery({ project }: { project: Project }) {
                 >
                   <Image
                     src={imageUrl}
-                    alt={screen.name + " AI tasarım taslağı"}
+                    alt={
+                      displayed.source === "upload"
+                        ? screen.name + " yüklenen tasarım"
+                        : screen.name + " AI tasarım taslağı"
+                    }
                     width={1024}
                     height={1536}
                     unoptimized
@@ -308,6 +361,7 @@ export function DesignGallery({ project }: { project: Project }) {
               )}
               {displayed && (
                 <p className="text-xs text-muted-foreground">
+                  {displayed.source === "upload" ? "Yüklendi · " : ""}
                   Maliyet: ${displayed.costUsd.toFixed(4)} · Ayrılan / belirsiz:
                   $
                   {(displayed.reservedUsd + displayed.uncertainCostUsd).toFixed(
@@ -372,6 +426,27 @@ export function DesignGallery({ project }: { project: Project }) {
                           .length,
                       ).toFixed(2)}
                   </Button>
+                  <label htmlFor={screen.id + "-upload"} className="block">
+                    <input
+                      id={screen.id + "-upload"}
+                      type="file"
+                      accept="image/png,.png"
+                      className="sr-only"
+                      disabled={loading || busy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (file) void upload(screen.id, file);
+                      }}
+                    />
+                    <span className="inline-flex h-9 w-full items-center justify-center rounded-md border bg-background px-4 text-sm font-medium hover:bg-accent">
+                      Bu ekran için PNG yükle
+                    </span>
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Kendi tasarımınızı bu ekran için PNG olarak yükleyin. AI
+                    ücreti alınmaz; görseli yine de onaylamanız gerekir.
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {designGenerationReferences(project, jobs, screen.id).length
                       ? "Yeni taslak için onaylı referanslar: " +

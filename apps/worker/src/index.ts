@@ -90,10 +90,17 @@ try {
     "GitHub bağlantısı kurulamadı. PAT ve GITHUB_OWNER ayarlarını kontrol edip worker'ı yeniden başlatın.";
 }
 const designGithub = github ? new DesignAssetGithub(root, github) : null;
-async function syncDesignGithub(id: string, force = false) {
+async function rememberGithub(project: { id: string; name: string }) {
+  if (github) await github.preferName(project.id, project.name);
+}
+async function syncDesignGithub(
+  id: string,
+  force = false,
+  projectName?: string,
+) {
   deletion.assertAvailable(id);
   if (!designGithub) return;
-  await designGithub.sync(id, designImages.jobs, force);
+  await designGithub.sync(id, designImages.jobs, force, projectName);
   designImages.cloudError = null;
 }
 designImages.onSaved = (id) => syncDesignGithub(id, true);
@@ -164,10 +171,12 @@ function committedCost(id: string) {
 }
 const token = randomBytes(32).toString("hex");
 async function readBody(request: IncomingMessage) {
+  const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  const limit = url.pathname === "/design-images" ? 28_000_000 : 240_000;
   let body = "";
   for await (const chunk of request) {
     body += String(chunk);
-    if (Buffer.byteLength(body) > 240_000) throw new Error("İstek çok büyük.");
+    if (Buffer.byteLength(body) > limit) throw new Error("İstek çok büyük.");
   }
   const parsed = JSON.parse(body);
   if (request.url !== "/projects/delete")
@@ -243,7 +252,9 @@ const server = createServer(async (request, response) => {
       if (body.action === "check") await deletion.plan(project.id);
       else {
         const remote = github;
-        await deletion.run(project.id, () => remote.deleteProject(project.id));
+        await deletion.run(project.id, () =>
+          remote.deleteProject(project.id, project.name),
+        );
         jobs.jobs.delete(project.id);
         planner.jobs.delete(project.id);
         for (const [id, job] of builder.jobs)
@@ -323,6 +334,7 @@ const server = createServer(async (request, response) => {
         throw new Error("Başka bir işlem sürüyor.");
       const body = await readBody(request),
         project = projectSchema.parse(body.project);
+      await rememberGithub(project);
       if (body.action === "list") {
         const operation = startGithubOperation(
           project.id,
@@ -333,9 +345,13 @@ const server = createServer(async (request, response) => {
         try {
           send(
             200,
-            await github.list(project.id, (value) => {
-              operation.progress = value;
-            }),
+            await github.list(
+              project.id,
+              (value) => {
+                operation.progress = value;
+              },
+              project.name,
+            ),
           );
         } finally {
           operation.active = false;
@@ -362,7 +378,7 @@ const server = createServer(async (request, response) => {
         );
         githubPending = true;
         void (async () => {
-          await syncDesignGithub(project.id, true);
+          await syncDesignGithub(project.id, true, project.name);
           operation.progress = 10;
           for (const [index, job] of candidates.entries()) {
             await sync.publish(job, (value) => {
@@ -406,7 +422,7 @@ const server = createServer(async (request, response) => {
         void builder
           .importRemote(
             async () => {
-              await syncDesignGithub(project.id, true);
+              await syncDesignGithub(project.id, true, project.name);
               return sync.restore(project, body.id, body.sha, (value) => {
                 operation.progress = Math.round(value * 0.7);
               });
@@ -529,7 +545,9 @@ const server = createServer(async (request, response) => {
           "Başka bir AI görevi sürüyor. Tamamlanmasını bekleyin.",
         );
       const body = await readBody(request);
-      await syncDesignGithub(projectSchema.parse(body.project).id, true);
+      const built = projectSchema.parse(body.project);
+      await rememberGithub(built);
+      await syncDesignGithub(built.id, true, built.name);
       send(202, {
         job: await builder.start(
           body.project,
@@ -553,8 +571,10 @@ const server = createServer(async (request, response) => {
         return;
       }
       const id = projectIdSchema.parse(url.searchParams.get("projectId"));
+      const projectName = url.searchParams.get("name")?.trim() || undefined;
       try {
-        await syncDesignGithub(id);
+        if (projectName && github) await github.preferName(id, projectName);
+        await syncDesignGithub(id, false, projectName ?? undefined);
       } catch (error) {
         designImages.cloudError =
           error instanceof Error
@@ -585,7 +605,8 @@ const server = createServer(async (request, response) => {
           !body.reviewedIds.every((id: unknown) => typeof id === "string")
         )
           throw new Error("Görsel onayları geçersiz.");
-        await syncDesignGithub(project.id, true);
+        await rememberGithub(project);
+        await syncDesignGithub(project.id, true, project.name);
         const approved = approveImageDesign(
           project,
           designImages.list(project.id),
@@ -600,7 +621,13 @@ const server = createServer(async (request, response) => {
       }
       if (builder.busy || planner.busy)
         throw new Error("AI analizi sürüyor. Tamamlanmasını bekleyin.");
-      await syncDesignGithub(projectSchema.parse(body.project).id, true);
+      const designProject = projectSchema.parse(body.project);
+      await rememberGithub(designProject);
+      await syncDesignGithub(designProject.id, true, designProject.name);
+      if (body.action === "upload") {
+        send(202, { job: await designImages.importPng(body) });
+        return;
+      }
       send(202, { job: await designImages.start(body) });
       return;
     }

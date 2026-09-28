@@ -11,6 +11,7 @@ import path from "node:path";
 import {
   designImageJobSchema,
   designImageRequestSchema,
+  designImageUploadSchema,
   getSpecification,
   getScreens,
   type DesignImageJob,
@@ -263,6 +264,100 @@ export class DesignImageManager {
               : "Görsel GitHub'a gönderilemedi; yerel dosya korundu.";
         }
       }
+      this.locked = false;
+    }
+  }
+  async importPng(input: unknown) {
+    const request = designImageUploadSchema.parse(input);
+    const { project, screenId, requestId, expectedLatestId, pngBase64 } =
+      request;
+    const duplicate = this.jobs.get(requestId);
+    if (duplicate) {
+      if (duplicate.projectId !== project.id || duplicate.screenId !== screenId)
+        throw new Error("İstek kimliği başka bir işe ait.");
+      return duplicate;
+    }
+    if (this.locked)
+      throw new Error("Bir görsel işleniyor. Tamamlanmasını bekleyin.");
+    if (!["design", "development", "tests", "build"].includes(project.stage))
+      throw new Error("Önce ekranları onaylayın.");
+    const spec = getSpecification(project);
+    const screen = getScreens(spec).find((s) => s.id === screenId && s.enabled);
+    if (!screen) throw new Error("Seçili ekran bulunamadı.");
+    const previous = this.list(project.id).filter(
+      (j) => j.revision === spec.revision && j.screenId === screenId,
+    );
+    if ((previous.at(-1)?.id ?? null) !== expectedLatestId)
+      throw new Error(
+        "Bu ekran başka bir sekmede güncellendi. Güncel sonucu bekleyin.",
+      );
+    let png: Buffer;
+    try {
+      png = Buffer.from(pngBase64, "base64");
+      validateDesignPng(png);
+    } catch {
+      throw new Error(
+        "Yalnızca geçerli bir PNG dosyası yüklenebilir (en fazla 20 MB).",
+      );
+    }
+    const job: DesignImageJob = {
+      id: requestId,
+      projectId: project.id,
+      revision: spec.revision,
+      screenId,
+      screenName: screen.name,
+      brief: "Yüklenen tasarım",
+      status: "running",
+      costUsd: 0,
+      uncertainCostUsd: 0,
+      reservedUsd: 0,
+      error: null,
+      createdAt: new Date(
+        Math.max(
+          Date.now(),
+          ...previous.map((j) => Date.parse(j.createdAt) + 1),
+        ),
+      ).toISOString(),
+      model: "upload",
+      source: "upload",
+      referenceAssetIds: [],
+    };
+    this.locked = true;
+    try {
+      await this.persist(job);
+      this.jobs.set(job.id, job);
+      await writeFile(
+        path.join(this.root, "workspace/design-images", job.id + ".png"),
+        png,
+        { flag: "wx", mode: 0o600 },
+      );
+      job.status = "succeeded";
+      await this.persist(job);
+      if (this.onSaved) {
+        try {
+          await this.onSaved(job.projectId);
+          this.cloudError = null;
+        } catch (error) {
+          this.cloudError =
+            error instanceof Error
+              ? error.message
+              : "Görsel GitHub'a gönderilemedi; yerel dosya korundu.";
+        }
+      }
+      return job;
+    } catch (e) {
+      job.status = "failed";
+      job.error =
+        e instanceof Error
+          ? e.message
+          : "Görsel kaydedilemedi. Önceki dosyalar korunuyor.";
+      try {
+        await this.persist(job);
+      } catch {
+        job.error = "Görsel iş kaydı yazılamadı.";
+      }
+      throw new Error(job.error);
+    } finally {
       this.locked = false;
     }
   }

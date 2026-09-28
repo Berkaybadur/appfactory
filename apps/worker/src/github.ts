@@ -6,6 +6,7 @@ import {
   readdir,
   lstat,
   rename,
+  realpath,
 } from "node:fs/promises";
 import path from "node:path";
 import { parseEnv } from "node:util";
@@ -21,8 +22,60 @@ import {
 import { assertRealDirectory } from "@app-factory/generator";
 const shaSchema = z.string().regex(/^[a-f0-9]{40}$/);
 const refSchema = z.object({ object: z.object({ sha: shaSchema }) });
+const repoNameSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?$/);
 const metadata = "appfactory-job.json";
 const excluded = new Set(["node_modules", "dist", "design-targets"]);
+export function githubRepoSlug(name: string) {
+  const ascii = name
+    .replace(/ı/g, "i")
+    .replace(/İ/g, "i")
+    .replace(/ğ/g, "g")
+    .replace(/Ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/Ü/g, "u")
+    .replace(/ş/g, "s")
+    .replace(/Ş/g, "s")
+    .replace(/ö/g, "o")
+    .replace(/Ö/g, "o")
+    .replace(/ç/g, "c")
+    .replace(/Ç/g, "c")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const slug = ascii
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 80)
+    .replace(/-+$/g, "");
+  return slug.length >= 2 ? slug : "proje";
+}
+export function githubRepoMarker(id: string) {
+  projectIdSchema.parse(id);
+  return `appfactory-project:${id}`;
+}
+export function githubRepoCandidates(id: string, projectName?: string) {
+  projectIdSchema.parse(id);
+  const names: string[] = [];
+  if (projectName) {
+    const slug = githubRepoSlug(projectName);
+    names.push(slug);
+    const suffix = id
+      .replace(/[^a-z0-9]/gi, "")
+      .slice(0, 8)
+      .toLowerCase();
+    if (suffix) {
+      const unique = `${slug.slice(0, Math.max(1, 90 - suffix.length - 1))}-${suffix}`;
+      names.push(unique);
+    }
+  }
+  names.push(`appfactory-${id}`);
+  return [
+    ...new Set(names.filter((name) => repoNameSchema.safeParse(name).success)),
+  ];
+}
 export function portableFile(name: string) {
   if ([".gitignore", ".easignore"].includes(name)) return true;
   const parts = name.split("/");
@@ -81,6 +134,7 @@ async function packedConnection(cwd: string) {
   }
 }
 export async function collectGithubFiles(cwd: string, token = "") {
+  cwd = await realpath(cwd);
   await assertRealDirectory(cwd);
   const files = new Map<string, Buffer>();
   let size = 0;
@@ -178,15 +232,68 @@ export class GithubSync {
     }
     return new GithubSync(root, owner, token);
   }
-  private route(id: string) {
+  private async resolvedRoot() {
+    await mkdir(this.root, { recursive: true });
+    this.root = await realpath(this.root);
+    return this.root;
+  }
+  private repoRoute(name: string) {
+    return `/repos/${this.owner}/${encodeURIComponent(repoNameSchema.parse(name))}`;
+  }
+  private async binding(id: string) {
     projectIdSchema.parse(id);
-    return `/repos/${this.owner}/appfactory-${id}`;
+    const root = await this.resolvedRoot();
+    const dir = path.join(root, "workspace/github");
+    await mkdir(dir, { recursive: true });
+    await assertRealDirectory(dir);
+    const file = path.join(dir, id + "-repo.json");
+    try {
+      return {
+        file,
+        value: z
+          .object({
+            name: repoNameSchema.optional(),
+            preferred: repoNameSchema.optional(),
+          })
+          .parse(JSON.parse(await readFile(file, "utf8"))),
+      };
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+      return { file, value: null };
+    }
+  }
+  private async bind(id: string, name: string) {
+    const state = await this.binding(id);
+    await writeFile(
+      state.file,
+      JSON.stringify({ ...state.value, name: repoNameSchema.parse(name) }),
+      { mode: 0o600 },
+    );
+  }
+  async preferName(id: string, projectName: string) {
+    const state = await this.binding(id);
+    if (state.value?.name) return;
+    const preferred = githubRepoSlug(projectName);
+    if (state.value?.preferred === preferred) return;
+    await writeFile(state.file, JSON.stringify({ ...state.value, preferred }), {
+      mode: 0o600,
+    });
+  }
+  private ours(
+    id: string,
+    candidate: string,
+    description: string | null | undefined,
+  ) {
+    return (
+      candidate === `appfactory-${id}` || description === githubRepoMarker(id)
+    );
   }
   private async api(
     route: string,
     method = "GET",
     body?: unknown,
     missing = false,
+    conflict = false,
   ): Promise<unknown> {
     let r: Response;
     try {
@@ -219,17 +326,24 @@ export class GithubSync {
       }
       return null;
     }
+    if (conflict && r.status === 422) return null;
     if (!r.ok)
       throw new Error(
         `GitHub işlemi başarısız (HTTP ${r.status}). PAT ve repo izinlerini kontrol edin; uzak sürüm değişmişse önce indirin.`,
       );
     return r.status === 204 ? null : r.json();
   }
-  async deleteProject(id: string) {
+  async deleteProject(id: string, projectName?: string) {
     if (this.busy) throw new Error("GitHub işleminin bitmesini bekleyin.");
     this.busy = true;
     try {
-      await this.api(this.route(id), "DELETE", undefined, true);
+      const found = await this.repo(id, false, projectName);
+      await this.api(
+        found?.route ?? this.repoRoute(`appfactory-${id}`),
+        "DELETE",
+        undefined,
+        true,
+      );
       this.status.delete(id);
     } catch (error) {
       throw new Error(
@@ -240,39 +354,95 @@ export class GithubSync {
       this.busy = false;
     }
   }
-  private async repo(id: string, create = false) {
-    const route = this.route(id);
-    let raw = await this.api(route, "GET", undefined, true);
-    if (!raw && create) {
-      const user = z
-        .object({ login: z.string() })
-        .parse(await this.api("/user"));
-      raw = await this.api(
-        user.login.toLowerCase() === this.owner.toLowerCase()
-          ? "/user/repos"
-          : `/orgs/${this.owner}/repos`,
+  private async repo(id: string, create = false, projectName?: string) {
+    projectIdSchema.parse(id);
+    const bound = (await this.binding(id)).value;
+    const names = [
+      bound?.name,
+      bound?.preferred,
+      ...githubRepoCandidates(id, projectName),
+    ].filter((name): name is string => !!name);
+    for (const name of [...new Set(names)]) {
+      const raw = await this.api(this.repoRoute(name), "GET", undefined, true);
+      if (!raw) continue;
+      const parsed = z
+        .object({
+          private: z.boolean(),
+          default_branch: z.string(),
+          name: z.string().optional(),
+          description: z.string().nullable().optional(),
+          html_url: z.string().optional(),
+        })
+        .parse(raw);
+      if (!this.ours(id, parsed.name ?? name, parsed.description)) continue;
+      if (!parsed.private)
+        throw new Error("Yalnızca private repo kullanılabilir.");
+      const actual = repoNameSchema.parse(
+        parsed.name ? parsed.name.toLowerCase() : name,
+      );
+      await this.bind(id, actual);
+      return {
+        ...parsed,
+        route: this.repoRoute(actual),
+        url: parsed.html_url ?? `https://github.com/${this.owner}/${actual}`,
+      };
+    }
+    if (!create) return null;
+    const preferred =
+      bound?.preferred ??
+      (projectName ? githubRepoSlug(projectName) : `appfactory-${id}`);
+    const fallback =
+      githubRepoCandidates(id, projectName).find(
+        (name) => name !== preferred,
+      ) ?? `appfactory-${id}`;
+    const user = z.object({ login: z.string() }).parse(await this.api("/user"));
+    const createAt =
+      user.login.toLowerCase() === this.owner.toLowerCase()
+        ? "/user/repos"
+        : `/orgs/${this.owner}/repos`;
+    let created: unknown = null;
+    for (const name of [...new Set([preferred, fallback])]) {
+      created = await this.api(
+        createAt,
         "POST",
         {
-          name: `appfactory-${id}`,
+          name,
           private: true,
           auto_init: true,
-          description: "App Factory generated mobile application",
+          description: githubRepoMarker(id),
         },
+        false,
+        true,
       );
+      if (created) break;
     }
-    if (!raw) return null;
+    if (!created)
+      throw new Error(
+        "GitHub deposu oluşturulamadı. Aynı ada sahip başka bir repo olabilir; proje adını değiştirip tekrar deneyin.",
+      );
     const repo = z
-      .object({ private: z.boolean(), default_branch: z.string() })
-      .parse(raw);
+      .object({
+        private: z.boolean(),
+        default_branch: z.string(),
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        html_url: z.string().optional(),
+      })
+      .parse(created);
     if (!repo.private) throw new Error("Yalnızca private repo kullanılabilir.");
+    const actual = repoNameSchema.parse(
+      repo.name ? repo.name.toLowerCase() : preferred,
+    );
+    await this.bind(id, actual);
     return {
       ...repo,
-      route,
-      url: `https://github.com/${this.owner}/appfactory-${id}`,
+      route: this.repoRoute(actual),
+      url: repo.html_url ?? `https://github.com/${this.owner}/${actual}`,
     };
   }
   private async state(id: string) {
-    const dir = path.join(this.root, "workspace/github");
+    const root = await this.resolvedRoot();
+    const dir = path.join(root, "workspace/github");
     await mkdir(dir, { recursive: true });
     await assertRealDirectory(dir);
     const file = path.join(dir, id + ".json");
@@ -293,7 +463,8 @@ export class GithubSync {
     }
   }
   private async headState(projectId: string) {
-    const dir = path.join(this.root, "workspace/github");
+    const root = await this.resolvedRoot();
+    const dir = path.join(root, "workspace/github");
     await mkdir(dir, { recursive: true });
     await assertRealDirectory(dir);
     const file = path.join(dir, projectId + "-head.json");
@@ -316,6 +487,7 @@ export class GithubSync {
     if (this.busy) throw new Error("GitHub eşitlemesi sürüyor.");
     this.busy = true;
     try {
+      await this.resolvedRoot();
       const job = builderJobSchema.parse(input);
       if (job.status === "running" || !job.outputPath)
         throw new Error("Çalışan veya çıktısı olmayan görev gönderilemez.");
@@ -345,7 +517,7 @@ export class GithubSync {
       files.set(metadata, Buffer.from(JSON.stringify(portable, null, 2)));
       for (const data of files.values()) checkSecrets(data, this.token);
       progress(10);
-      const repo = (await this.repo(job.project.id, true))!,
+      const repo = (await this.repo(job.project.id, true, job.project.name))!,
         branch = repo.default_branch;
       const ref = refSchema.parse(
           await this.api(
@@ -461,12 +633,13 @@ export class GithubSync {
       remote: Map<string, string>,
       read: (name: string) => Promise<Buffer>,
     ) => Promise<Map<string, Buffer>>,
+    projectName?: string,
   ) {
     projectIdSchema.parse(projectId);
     if (this.busy) throw new Error("GitHub eşitlemesi sürüyor.");
     this.busy = true;
     try {
-      const repo = await this.repo(projectId, create);
+      const repo = await this.repo(projectId, create, projectName);
       if (!repo) return;
       const branch = "factory-design-assets";
       const ref = refSchema
@@ -593,8 +766,12 @@ export class GithubSync {
       this.busy = false;
     }
   }
-  async list(id: string, progress: (value: number) => void = () => {}) {
-    const repo = await this.repo(id);
+  async list(
+    id: string,
+    progress: (value: number) => void = () => {},
+    projectName?: string,
+  ) {
+    const repo = await this.repo(id, false, projectName);
     progress(50);
     if (!repo) return { url: null, jobs: [] };
     const jobs: { id: string; sha: string; branch?: string }[] = [];
@@ -700,7 +877,7 @@ export class GithubSync {
     try {
       z.uuid().parse(id);
       shaSchema.parse(sha);
-      const repo = await this.repo(project.id);
+      const repo = await this.repo(project.id, false, project.name);
       if (!repo) throw new Error("GitHub deposu bulunamadı.");
       const mainRef = refSchema
         .nullable()

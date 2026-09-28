@@ -4,6 +4,7 @@ import {
   projectSchema,
   projectIdSchema,
   designImageRequestSchema,
+  designImageUploadSchema,
 } from "@app-factory/schemas";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,13 +50,18 @@ async function proxy(request: Request, body?: unknown) {
       throw new Error("Geçersiz worker portu.");
     const id = new URL(request.url).searchParams.get("projectId");
     const assetId = new URL(request.url).searchParams.get("assetId");
+    const name = new URL(request.url).searchParams.get("name");
     if (assetId && !/^[0-9a-f-]{36}$/.test(assetId))
       return Response.json({ error: "Geçersiz görsel." }, { status: 400 });
     const query =
       !body && assetId
         ? `?assetId=${assetId}`
         : !body && id
-          ? `?projectId=${projectIdSchema.parse(id)}`
+          ? `?projectId=${projectIdSchema.parse(id)}${
+              name && name.length <= 80
+                ? `&name=${encodeURIComponent(name)}`
+                : ""
+            }`
           : "";
     const response = await fetch(
       `http://127.0.0.1:${port}/design-images${query}`,
@@ -105,9 +111,14 @@ export async function POST(request: Request) {
     return Response.json({ error: "JSON istek gerekli." }, { status: 415 });
   try {
     const text = await request.text();
-    if (text.length > 240_000)
+    if (text.length > 28_000_000)
       return Response.json({ error: "İstek çok büyük." }, { status: 413 });
     const body = JSON.parse(text);
+    if (body.action === "upload") {
+      return proxy(request, designImageUploadSchema.parse(body));
+    }
+    if (text.length > 240_000)
+      return Response.json({ error: "İstek çok büyük." }, { status: 413 });
     if (body.action === "approve") {
       const project = projectSchema
         .safeExtend({ id: projectIdSchema })

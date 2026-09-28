@@ -341,3 +341,38 @@ test("insufficient project budget prevents requests; interrupted generation keep
     await rm(root, { recursive: true, force: true });
   }
 });
+test("a per-screen PNG upload becomes an approvable design without AI", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "design-upload-"));
+  try {
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+    const m = new DesignImageManager(root, () => 0, "");
+    await m.initialize();
+    const job = await m.importPng({
+      action: "upload",
+      project,
+      screenId: "home",
+      requestId: randomUUID(),
+      expectedLatestId: null,
+      pngBase64: png.toString("base64"),
+    });
+    assert.equal(job.status, "succeeded");
+    assert.equal(job.source, "upload");
+    assert.equal(job.costUsd, 0);
+    assert.equal(m.enabled, false);
+    const approved = approveImageDesign(project, m.list(project.id), [job.id]);
+    assert.equal(approved.designReview?.images?.[0]?.assetId, job.id);
+    await assert.rejects(
+      m.importPng({
+        action: "upload",
+        project,
+        screenId: "home",
+        requestId: randomUUID(),
+        expectedLatestId: job.id,
+        pngBase64: Buffer.from("not-png").toString("base64"),
+      }),
+      /PNG/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

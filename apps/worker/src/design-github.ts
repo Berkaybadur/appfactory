@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile, mkdir, lstat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -55,19 +55,20 @@ export class DesignAssetGithub {
     projectId: string,
     jobs: Map<string, DesignImageJob>,
     force = false,
+    projectName?: string,
   ): Promise<void> {
     projectIdSchema.parse(projectId);
     const existing = this.pending.get(projectId);
     if (existing)
       return force
-        ? existing.then(() => this.sync(projectId, jobs, true))
+        ? existing.then(() => this.sync(projectId, jobs, true, projectName))
         : existing;
     if (
       !force &&
       (this.github.busy || Date.now() - (this.last.get(projectId) ?? 0) < 15000)
     )
       return Promise.resolve();
-    const work = this.transfer(projectId, jobs)
+    const work = this.transfer(projectId, jobs, projectName)
       .then(() => {
         this.last.set(projectId, Date.now());
       })
@@ -78,9 +79,14 @@ export class DesignAssetGithub {
     return work;
   }
 
-  private async transfer(projectId: string, jobs: Map<string, DesignImageJob>) {
-    const directory = path.join(this.root, "workspace/design-images");
-    await mkdir(directory, { recursive: true });
+  private async transfer(
+    projectId: string,
+    jobs: Map<string, DesignImageJob>,
+    projectName?: string,
+  ) {
+    const pending = path.join(this.root, "workspace/design-images");
+    await mkdir(pending, { recursive: true });
+    const directory = await realpath(pending);
     await assertRealDirectory(directory);
     const local = [...jobs.values()].filter(
       (job) => job.projectId === projectId && job.status === "succeeded",

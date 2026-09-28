@@ -541,6 +541,7 @@ export const designImageJobSchema = z.object({
   createdAt: z.iso.datetime(),
   model: z.string(),
   referenceAssetIds: z.array(z.uuid()).max(20).optional(),
+  source: z.enum(["ai", "upload"]).optional(),
 });
 export type DesignImageJob = z.infer<typeof designImageJobSchema>;
 // Reserve additional budget for the image inputs; actual usage is accounted separately.
@@ -597,6 +598,14 @@ export const designImageRequestSchema = z.object({
   brief: z.string().trim().max(1000),
   requestId: z.uuid(),
   expectedLatestId: z.uuid().nullable(),
+});
+export const designImageUploadSchema = z.object({
+  action: z.literal("upload"),
+  project: projectSchema.safeExtend({ id: projectIdSchema }),
+  screenId: screenIdSchema,
+  requestId: z.uuid(),
+  expectedLatestId: z.uuid().nullable(),
+  pngBase64: z.string().min(12).max(28_000_000),
 });
 export function approveImageDesign(
   project: Project,
