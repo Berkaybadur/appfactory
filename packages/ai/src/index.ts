@@ -187,6 +187,7 @@ export {
   runBuilder,
   runFeatureBuilder,
   runAppRevision,
+  runSmokeReviewer,
   builderReservationUsd,
   builderTaskLimitUsd,
   type BuilderInput,

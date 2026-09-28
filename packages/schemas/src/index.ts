@@ -689,10 +689,65 @@ export const builderTaskSchema = z.object({
   log: z.string(),
 });
 export const appWideScreenId = "app";
+export const smokePhaseSchema = z.enum(["design", "functional"]);
+export const smokeDecisionSchema = z.object({
+  status: z.enum(["passed", "failed", "blocked"]),
+  expected: z.string().min(1).max(1000),
+  actual: z.string().min(1).max(1500),
+});
+export function smokeDecisionJsonSchema() {
+  const schema = z.toJSONSchema(smokeDecisionSchema);
+  delete schema.$schema;
+  return schema;
+}
+export const smokeCheckSchema = z.object({
+  id: z.string().min(1).max(100),
+  screenId: screenIdSchema,
+  title: z.string().min(1).max(300),
+  status: z.enum(["pending", "passed", "failed", "blocked"]),
+  expected: z.string().min(1).max(1000),
+  actual: z.string().min(1).max(1500),
+  steps: z.array(z.string().max(500)).max(30),
+  evidence: z.array(z.string().regex(/^\d+\.png$/)).max(30),
+});
+export const smokeReportSchema = z.object({
+  id: z.uuid(),
+  projectId: projectIdSchema,
+  sourceJobId: z.uuid(),
+  fingerprint: z.string(),
+  phase: smokePhaseSchema,
+  platform: z.enum(["android", "ios"]),
+  status: z.enum(["draft", "running", "review", "failed"]),
+  checks: z.array(smokeCheckSchema).max(100),
+  error: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  reviewedAt: z.iso.datetime().nullable(),
+  repairJobId: z.uuid().nullable(),
+  costUsd: z.number().nonnegative(),
+  reservedUsd: z.number().nonnegative(),
+  uncertainCostUsd: z.number().nonnegative(),
+});
+export type SmokeReport = z.infer<typeof smokeReportSchema>;
+export type SmokeCheck = z.infer<typeof smokeCheckSchema>;
+export const smokeRequestSchema = z.object({
+  action: z.enum(["info", "start", "capture", "run", "approve", "repair"]),
+  project: projectSchema.safeExtend({ id: projectIdSchema }),
+  sourceJobId: z.uuid(),
+  phase: smokePhaseSchema.default("design"),
+  platform: z.enum(["android", "ios"]).default("android"),
+  requestId: z.uuid().optional(),
+  reportId: z.uuid().optional(),
+  fingerprint: z.string().optional(),
+  checkId: z.string().max(100).optional(),
+  pngBase64: z.string().max(28_000_000).optional(),
+  result: z.enum(["passed", "failed", "blocked"]).optional(),
+  actual: z.string().trim().min(5).max(1500).optional(),
+  steps: z.array(z.string().trim().min(1).max(500)).max(30).optional(),
+});
 export const codeChangeSchema = z.object({
   sourceJobId: z.uuid(),
   screenId: z.union([screenIdSchema, z.literal(appWideScreenId)]),
-  instruction: z.string().trim().min(5).max(2000),
+  instruction: z.string().trim().min(5).max(12000),
 });
 export const revisionRequestSchema = z.object({
   project: projectSchema.safeExtend({ id: projectIdSchema }),

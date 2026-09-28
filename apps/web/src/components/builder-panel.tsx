@@ -483,6 +483,7 @@ export function BuilderPanel({
         </details>
       )}
       {section !== "build" &&
+        (section === "development" || project.stage === "build") &&
         ((job?.status === "ready" && !stale) || outputId) && (
           <Button asChild variant="outline">
             <Link

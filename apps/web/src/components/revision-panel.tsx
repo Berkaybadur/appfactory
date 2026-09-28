@@ -12,6 +12,7 @@ import {
 } from "@app-factory/schemas";
 import { OperationProgress, builderProgress } from "./operation-progress";
 import { PreviewPanel } from "./preview-panel";
+import { SmokePanel } from "./smoke-panel";
 import { ConnectionPanel } from "./connection-panel";
 import { Button } from "./ui/button";
 import { useProjects } from "./project-provider";
@@ -327,7 +328,7 @@ export function RevisionPanel({
         {(latest.tasks.find((t) => t.status !== "ready") ?? latest.tasks[0])
           ?.attempts ?? 0}
       </p>
-      {section !== "tests" && latest.status === "failed" && (
+      {latest.status === "failed" && (
         <div className="space-y-2 rounded-md border p-3">
           {modelSelect}
           <p className="text-xs text-muted-foreground">
@@ -356,6 +357,40 @@ export function RevisionPanel({
   );
   return (
     <div className="space-y-5">
+      {section === "tests" && (
+        <>
+          <label className="block space-y-1 text-sm">
+            <span>Smoke test için çalışan sürüm</span>
+            <select
+              className="block w-full rounded-md border bg-background p-2"
+              value={selectedId ?? ""}
+              disabled={active || pending}
+              onChange={(e) => setSelected(e.target.value)}
+            >
+              <option value={root ?? ""}>İlk çalışan çıktı</option>
+              {ready
+                .filter((j) => j.id !== root)
+                .map((j, i) => (
+                  <option key={j.id} value={j.id}>
+                    Revizyon {i + 1} · {j.tasks[0]?.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <PreviewPanel
+            key={"smoke-preview:" + selectedId}
+            project={project}
+            sourceJobId={selectedId}
+            showBuild={false}
+          />
+          <SmokePanel
+            key={"smoke:" + selectedId}
+            project={project}
+            sourceJobId={selectedId}
+            revisionBusy={active || pending}
+          />
+        </>
+      )}
       {section === "build" && (
         <ConnectionPanel
           key={"connection:" + (selectedId ?? "none")}

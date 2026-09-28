@@ -368,11 +368,11 @@ export function GenerationPanel({
       {section !== "build" && (
         <Button asChild variant="outline">
           <Link
-            href={`/projects/${project.id}/${section === "development" ? "tests" : job?.status === "ready" && !stale ? "build" : "development"}`}
+            href={`/projects/${project.id}/${section === "development" ? "tests" : project.stage === "build" && !stale ? "build" : "development"}`}
           >
             {section === "development"
               ? "Testlere git"
-              : job?.status === "ready" && !stale
+              : project.stage === "build" && !stale
                 ? "QR önizleme ve derlemeye git"
                 : "Geliştirmeye git"}
           </Link>

@@ -23,10 +23,12 @@ export function PreviewPanel({
   project,
   sourceJobId,
   feedback,
+  showBuild = true,
 }: {
   project: Project;
   sourceJobId: string | null;
   feedback?: ReactNode;
+  showBuild?: boolean;
 }) {
   const [session, setSession] = useState<PreviewSession | null>(null);
   const [approvals, setApprovals] = useState<PreviewApproval[]>([]);
@@ -294,11 +296,13 @@ export function PreviewPanel({
         </CardContent>
       </Card>
       {feedback}
-      <EasPanel
-        project={project}
-        sourceJobId={sourceJobId}
-        previewApproved={approved}
-      />
+      {showBuild && (
+        <EasPanel
+          project={project}
+          sourceJobId={sourceJobId}
+          previewApproved={approved}
+        />
+      )}
     </div>
   );
 }

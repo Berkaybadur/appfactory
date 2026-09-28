@@ -1,9 +1,11 @@
 import { GithubSync } from "./github";
+import { SmokeManager } from "./smoke";
+import { smokeRequestSchema } from "@app-factory/schemas";
 import { ProjectDeletion } from "./project-deletion";
 import { ReleaseManager } from "./release";
 import { DesignAssetGithub } from "./design-github";
 import { EasManager } from "./eas";
-import { PreviewManager } from "./preview";
+import { PreviewManager, sourceFingerprint } from "./preview";
 import { appConnection } from "./connection";
 import type { Project } from "@app-factory/schemas";
 import { stopEasCommands } from "./eas-cli";
@@ -56,11 +58,11 @@ const plannerSpend = (id: string) => {
 };
 const designImages: DesignImageManager = new DesignImageManager(
   root,
-  (id) => plannerSpend(id) + builder.spent(id),
+  (id) => plannerSpend(id) + builder.spent(id) + smoke.spent(id),
 );
 const builder: BuilderManager = new BuilderManager(
   root,
-  (id) => plannerSpend(id) + designImages.spent(id),
+  (id) => plannerSpend(id) + designImages.spent(id) + smoke.spent(id),
 );
 
 let github: GithubSync | null = null;
@@ -124,6 +126,28 @@ const resolveSource = (project: Project, sourceId: string) => {
   };
 };
 const preview = new PreviewManager(root, resolveSource);
+const smoke = new SmokeManager(
+  root,
+  resolveSource,
+  (input) => builder.revise(input, resolveSource),
+  (id) => plannerSpend(id) + designImages.spent(id) + builder.spent(id),
+  undefined,
+  undefined,
+  async (project, id) => {
+    const state = await preview.info(project.id);
+    if (
+      state.session?.sourceJobId !== id ||
+      state.session.status !== "ready" ||
+      state.session.fingerprint !==
+        (await sourceFingerprint(
+          path.resolve(root, resolveSource(project, id).outputPath),
+        ))
+    )
+      throw new Error(
+        "Önce bu kod sürümünün Expo Go önizlemesini başlatın ve cihazda açın.",
+      );
+  },
+);
 const release = new ReleaseManager(
   root,
   resolveSource,
@@ -140,7 +164,10 @@ const release = new ReleaseManager(
       ),
     ];
   },
-  (project, id) => preview.assertApproved(project, id),
+  async (project, id) => {
+    await smoke.assertReady(project, id);
+    await preview.assertApproved(project, id);
+  },
 );
 const eas = new EasManager(
   root,
@@ -149,12 +176,16 @@ const eas = new EasManager(
   undefined,
   undefined,
   async (project, id) => {
+    await smoke.assertReady(project, id);
     await preview.assertApproved(project, id);
     await release.assertReady(project, id);
   },
 );
 function committedCost(id: string) {
   return (
+    smoke
+      .list(id)
+      .reduce((n, report) => n + report.costUsd + report.uncertainCostUsd, 0) +
     plannerSpend(id) -
     (planner.jobs.get(id)?.reservedUsd ?? 0) +
     designImages
@@ -172,7 +203,9 @@ function committedCost(id: string) {
 const token = randomBytes(32).toString("hex");
 async function readBody(request: IncomingMessage) {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
-  const limit = url.pathname === "/design-images" ? 28_000_000 : 240_000;
+  const limit = ["/design-images", "/smoke"].includes(url.pathname)
+    ? 28_300_000
+    : 240_000;
   let body = "";
   for await (const chunk of request) {
     body += String(chunk);
@@ -213,6 +246,10 @@ const server = createServer(async (request, response) => {
   activeRequests++;
   try {
     const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
+    if (smoke.busy && request.method === "POST" && url.pathname !== "/smoke")
+      throw new Error(
+        "Smoke testi sürüyor. Kaynak değişiklikleri için tamamlanmasını bekleyin.",
+      );
     if (deletion.busy)
       throw new Error("Proje silme işlemi sürüyor. Tamamlanmasını bekleyin.");
     if (url.pathname === "/projects/delete" && request.method === "POST") {
@@ -281,6 +318,45 @@ const server = createServer(async (request, response) => {
         jobs: builder.list(id).filter((j) => j.change),
         totalCostUsd: committedCost(id),
       });
+      return;
+    }
+    if (url.pathname === "/smoke" && request.method === "POST") {
+      if (!request.headers["content-type"]?.startsWith("application/json"))
+        throw new Error("JSON istek gerekli.");
+      const input = smokeRequestSchema.parse(await readBody(request));
+      if (
+        input.action !== "info" &&
+        (builder.busy ||
+          planner.busy ||
+          designImages.busy ||
+          github?.busy ||
+          githubPending)
+      )
+        throw new Error("Önce devam eden üretim/eşitleme işlemini tamamlayın.");
+      send(200, {
+        ...(await smoke.act(input)),
+        totalCostUsd: committedCost(input.project.id),
+      });
+      return;
+    }
+    if (url.pathname === "/smoke" && request.method === "GET") {
+      const report = smoke.reports.get(url.searchParams.get("reportId") ?? "");
+      const file = url.searchParams.get("file") ?? "";
+      if (
+        !report ||
+        !report.checks.some((c) => c.evidence.includes(file)) ||
+        !/^\d+\.png$/.test(file)
+      )
+        throw new Error("Test kanıtı bulunamadı.");
+      deletion.assertAvailable(report.projectId);
+      const png = await readFile(
+        path.join(root, "workspace/smoke", report.id, file),
+      );
+      response.writeHead(200, {
+        "Content-Type": "image/png",
+        "Cache-Control": "no-store",
+      });
+      response.end(png);
       return;
     }
     if (url.pathname === "/revisions" && request.method === "POST") {
@@ -694,6 +770,7 @@ server.listen(port, "127.0.0.1", () => {
     await planner.initialize();
     await designImages.initialize();
     await builder.initialize();
+    await smoke.initialize();
     await eas.initialize();
     await preview.initialize();
     await deletion.initialize();

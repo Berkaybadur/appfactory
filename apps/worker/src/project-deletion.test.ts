@@ -43,6 +43,8 @@ async function fixture() {
     sourceJobId: source,
   });
   await put(`release/${old}.json`, { items: [] });
+  await put(`smoke/${asset}.json`, { projectId: "one" });
+  await put(`smoke/${asset}/0.png`);
   await put(`eas/jobs/${source}.json`, { id: source, projectId: "one" });
   await put("eas/links/one.json", { projectId: "one" });
   return { root, put, deletion: new ProjectDeletion(root) };

@@ -71,6 +71,7 @@ type Store = Snapshot & {
   syncGeneration: (job: GenerationJob) => void;
   syncBuilder: (job: BuilderJob) => void;
   syncPreview: (project: Project) => void;
+  syncSmoke: (project: Project, ready: boolean) => void;
   editSpecification: (
     id: string,
     section: SpecificationSection,
@@ -535,8 +536,30 @@ function syncPreview(project: Project) {
   const projects = currentProjects();
   save(
     projects.map((p) =>
+      p.id === project.id &&
+      sameSpecification(p, project) &&
+      p.stage === "development"
+        ? { ...p, stage: "tests" as const, updatedAt: new Date().toISOString() }
+        : p,
+    ),
+  );
+}
+function syncSmoke(project: Project, ready: boolean) {
+  const stage = ready ? "build" : "tests";
+  const projects = currentProjects();
+  if (
+    !projects.some(
+      (p) =>
+        p.id === project.id &&
+        sameSpecification(p, project) &&
+        p.stage !== stage,
+    )
+  )
+    return;
+  persistProjects(
+    projects.map((p) =>
       p.id === project.id && sameSpecification(p, project)
-        ? { ...p, stage: "build" as const, updatedAt: new Date().toISOString() }
+        ? { ...p, stage, updatedAt: new Date().toISOString() }
         : p,
     ),
   );
@@ -547,13 +570,13 @@ function syncBuilder(job: BuilderJob) {
   const current = projects.find((p) => p.id === job.project.id);
   if (
     !current ||
-    current.stage === "build" ||
+    ["tests", "build"].includes(current.stage) ||
     !sameSpecification(current, job.project)
   )
     return;
   const next = projects.map((p) =>
     p.id === current.id
-      ? { ...p, stage: "build" as const, updatedAt: new Date().toISOString() }
+      ? { ...p, stage: "tests" as const, updatedAt: new Date().toISOString() }
       : p,
   );
   persistProjects(next);
@@ -569,7 +592,7 @@ function syncGeneration(job: GenerationJob) {
   )
     return;
   const stage =
-    job.status === "ready" ? "build" : job.files.length ? "tests" : null;
+    current.stage === "build" ? "build" : job.files.length ? "tests" : null;
   if (!stage) return;
   if (
     !snapshot.projects.some(
@@ -701,6 +724,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         syncGeneration,
         syncBuilder,
         syncPreview,
+        syncSmoke,
         editSpecification,
         approveDesign,
         applyPlanner,

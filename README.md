@@ -28,13 +28,23 @@ Supabase veya AI anahtarı gerekmez. `WORKER_PORT` değiştirilirse hem web hem 
 2. Planı onaylayın; ekranları seçip başlık ve açıklamalarını kaydedin. Tasarım sayfasında seçilen her ekranı inceleyip tasarımı onaylayın.
 3. Geliştirme sayfasında **Expo projesini üret** düğmesine basın.
 4. **Bağımlılıkları kur ve kontrolleri çalıştır** düğmesi npm bağımlılıklarını kurar; gerçek `tsc --noEmit` ve ESLint çalıştırır.
-5. Gerçek sonuçlar ve işlem logları Testler sayfasında görünür. Başarılı kontroller projeyi Derleme aşamasına taşır.
+5. Gerçek sonuçlar ve işlem logları Testler sayfasında görünür. Kod kontrollerinden sonra Android/iOS Expo Go smoke testleri tamamlanır; yalnızca tüm hedef platformların tasarım ve işlev raporları onaylandığında Derleme aşamasına geçilir.
 6. Geliştirme/Testler/Derleme sayfasında **Expo önizlemesini başlat** düğmesini kullanın. Telefonla aynı Wi-Fi ağına bağlanın ve QR kodunu Expo Go ile açın. SDK 57 uyumlu Expo Go ve iPhone için panelde bağlı Expo hesabıyla giriş gerekir.
 7. Telefonda kontrol ettiğiniz platformu seçip önizlemeyi onaylayın. EAS build ancak bu kod sürümü için onay varsa başlatılabilir; onay build işlemini kendiliğinden başlatmaz.
 
 Üretilen uygulama seçtiğiniz ekranlardan oluşan **genel bir başlangıç şablonudur**. Ana ekran zorunludur; kayıt oluşturma, kayıt düzenleme, ayarlar ve kayıt ol ekranı seçilebilir. Kayıt ol yalnızca ad/e-posta alanları bulunan bir arayüz prototipidir; hesap oluşturmaz veya veri göndermez. Seçilmeyen ekranların route dosyaları üretilmez. AsyncStorage ile yerel veri saklar. Fikre özel iş mantığı AI tarafından yazılmaz. Typecheck/lint başarısı APK, cihaz testi veya mağaza yayını anlamına gelmez. EAS/Android derlemesi bağlı değildir; ücretli işlem başlatılmaz.
 
 ## Veri ve işler
+
+### Expo Go smoke testi ve onaylı düzeltme
+
+Testler sayfasında çalışan kod sürümünü seçip Expo önizlemesini başlatın. Aynı sürümü Android ve iOS cihazlarınızda Expo Go ile açın; projede seçili her platform için ayrı kayıt tutulur.
+
+1. **Tasarım:** Smoke testi başlatın ve her ekranın o cihazdan alınmış PNG görüntüsünü yükleyin (en fazla 10 MB). **Tasarımları karşılaştır ve sorun listesini oluştur** onaylı tasarım ile cihaz görüntüsünü AI ile karşılaştırır. Beklenen/gözlenen farklar ve iki görüntü raporda gösterilir. Bu görsel incelemedir; matematiksel piksel eşitliği ölçümü değildir.
+2. Raporu inceleyin. Hata varsa **Sorunları gider** düğmesi mevcut Builder üzerinden ayrı bir revizyon üretir; rapor hazırlanırken kod kendiliğinden değiştirilmez. Yeni sürümü Expo Go’da açıp iki platformun testlerini yeniden yapın. Sorunsuz raporları ayrı ayrı onaylayın.
+3. **İşlev:** Tüm hedef platformların tasarım raporları onaylanınca açılır. Ekran akışları, plan kapsamı, kabul kriterleri ve veri/hata davranışları için cihazda uyguladığınız adımları ve gözlediğiniz sonucu girin. Ekran kanıtı ekleyebilirsiniz. **İşlev testi raporunu oluştur** sonuçları listeler; aynı inceleme ve düzeltme akışı çalışır. Bu adımlar kullanıcı tarafından cihazda uygulanır; panel telefona otomatik tıklama göndermez.
+
+Eksik, hatalı veya test edilemeyen kontroller başarı sayılmaz. Kod, tasarım referansı veya kapsam değişirse rapor onayları geçersizleşir. EAS işlemleri güncel smoke onaylarını sunucuda da kontrol eder. AI karşılaştırması proje bütçesine dahildir; bağlantı kesilirse belirsiz ücret korunur. Raporlar ve cihaz görüntüleri yerel `workspace/smoke/` klasöründe saklanır; diğer bilgisayarlara otomatik eşitlenmez. Proje silindiğinde bu kayıtlar da temizlenir.
 
 ### Üç bilgisayardan ortak proje kullanımı
 
@@ -73,13 +83,13 @@ Production build bu ortamda Turbopack’ın işlem bağlantısı hatası nedeniy
 - `packages/shared`: örnek içerikler, onay state machine’i ve maliyet ilkeleri.
 - `packages/generator`: güvenli, ayrı dizine Expo şablon üretimi.
 - `packages/database`: isteğe bağlı Supabase istemcisi. Kimlik bilgileri yoksa null döner.
-- `packages/ai`: OpenAI Planner bağlantısı; Builder aynı görev servisini kullanır; Reviewer ileride eklenecek.
+- `packages/ai`: OpenAI Planner, Builder ve Expo ekran görüntülerini karşılaştıran tasarım Reviewer bağlantıları.
 - `templates/expo-base`: Expo SDK 57 / Expo Router / TypeScript şablonu.
 - `supabase/migrations`: ileride kalıcı proje veritabanı için ayrılmış dizin.
 
 ## Sonraki adımlar
 
-AI Reviewer ile görsel/işlev incelemesi; Supabase kalıcılığı, authentication ve RLS. AI görevlerinde ortak proje bütçesi uygulanır; elle yeniden deneme sayısı sınırsızdır. APK/EAS derlemesi ve cihaz doğrulaması ayrı aşamadır. V1 oyun üretmez.
+Cihaz etkileşimlerinin otomasyonu ve smoke raporlarının bilgisayarlar arasında eşitlenmesi. AI görevlerinde ortak proje bütçesi uygulanır; elle yeniden deneme sayısı sınırsızdır. APK/EAS derlemesi ve cihaz doğrulaması ayrı aşamadır. V1 oyun üretmez.
 
 ## Sprint 3: düzenlenebilir plan ve tasarım
 

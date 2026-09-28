@@ -98,6 +98,7 @@ export class ProjectDeletion {
       "builder",
       "design-images",
       "previews",
+      "smoke",
       "eas/jobs",
     ]) {
       for (const name of await this.names(directory)) {
@@ -111,6 +112,7 @@ export class ProjectDeletion {
         targets.add(file + ".tmp");
         if (directory === "design-images")
           targets.add(file.slice(0, -5) + ".png");
+        else if (directory === "smoke") targets.add(file.slice(0, -5));
         else if (directory === "builder" || directory.startsWith("jobs")) {
           if (
             typeof record.id !== "string" ||
