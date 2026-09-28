@@ -37,6 +37,7 @@ async function fixture() {
   await put(`design-images/${asset}.json`, { id: asset, projectId: "one" });
   await put(`design-images/${asset}.png`);
   await put(`github/${old}.json`, { sha: "old" });
+  await put("github/one-head.json", { sha: "head" });
   await put(`previews/${source}.json`, {
     projectId: "one",
     sourceJobId: source,

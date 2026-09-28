@@ -175,10 +175,11 @@ export function ConnectionPanel({
               Uygulama için App Factory&apos;nin değil, ayrı bir Supabase
               projesi kullanın ve backend/migration.sql dosyasını o projede
               çalıştırın. Yalnızca publishable anahtar kabul edilir; service
-              role veya secret anahtarlar mobil uygulamaya eklenemez. Bu
-              değerler GitHub eşitlemesine gönderilmez; başka bilgisayarda
-              yeniden girilmelidir. Bu sürümden türeyen revizyonlar bağlantıyı
-              devralır.
+              role veya secret anahtarlar mobil uygulamaya eklenemez. Adres ve
+              publishable anahtar private GitHub deposunun main dalına gider;
+              senkron alan diğer bilgisayar aynı bağlantıyı kullanır. Service
+              role GitHub&apos;a gönderilmez. Bu sürümden türeyen revizyonlar
+              bağlantıyı devralır.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button

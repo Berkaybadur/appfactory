@@ -11,6 +11,7 @@ import path from "node:path";
 import { parseEnv } from "node:util";
 import { z } from "zod";
 import {
+  appConnectionSchema,
   builderJobSchema,
   projectIdSchema,
   sameSpecification,
@@ -62,7 +63,23 @@ function checkSecrets(data: Buffer, token: string) {
     if (process.env[key] && text.includes(process.env[key]!))
       throw new Error("Sunucu anahtarı GitHub'a gönderilemez.");
 }
-const emptyConnection = Buffer.from('{"url":"","publishableKey":""}\n');
+function connectionBuffer(raw: unknown) {
+  const parsed = appConnectionSchema.safeParse(raw);
+  const value = parsed.success ? parsed.data : { url: "", publishableKey: "" };
+  return Buffer.from(JSON.stringify(value, null, 2) + "\n");
+}
+const emptyConnection = connectionBuffer({ url: "", publishableKey: "" });
+async function packedConnection(cwd: string) {
+  try {
+    return connectionBuffer(
+      JSON.parse(
+        await readFile(path.join(cwd, "src/runtime/connection.json"), "utf8"),
+      ),
+    );
+  } catch {
+    return emptyConnection;
+  }
+}
 export async function collectGithubFiles(cwd: string, token = "") {
   await assertRealDirectory(cwd);
   const files = new Map<string, Buffer>();
@@ -101,7 +118,7 @@ export async function collectGithubFiles(cwd: string, token = "") {
     }
   }
   await walk(cwd);
-  files.set("src/runtime/connection.json", emptyConnection);
+  files.set("src/runtime/connection.json", await packedConnection(cwd));
   return files;
 }
 function digest(files: Map<string, Buffer>) {
@@ -275,6 +292,23 @@ export class GithubSync {
       return { file, value: null };
     }
   }
+  private async headState(projectId: string) {
+    const dir = path.join(this.root, "workspace/github");
+    await mkdir(dir, { recursive: true });
+    await assertRealDirectory(dir);
+    const file = path.join(dir, projectId + "-head.json");
+    try {
+      return {
+        file,
+        value: z
+          .object({ sha: shaSchema })
+          .parse(JSON.parse(await readFile(file, "utf8"))),
+      };
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+      return { file, value: null };
+    }
+  }
   async publish(
     input: BuilderJob,
     progress: (value: number) => void = () => {},
@@ -312,22 +346,29 @@ export class GithubSync {
       for (const data of files.values()) checkSecrets(data, this.token);
       progress(10);
       const repo = (await this.repo(job.project.id, true))!,
-        branch = `factory-${job.id}`;
-      const ref = refSchema
-          .nullable()
-          .parse(
-            await this.api(
-              `${repo.route}/git/ref/heads/${branch}`,
-              "GET",
-              undefined,
-              true,
-            ),
+        branch = repo.default_branch;
+      const ref = refSchema.parse(
+          await this.api(
+            `${repo.route}/git/ref/heads/${encodeURIComponent(branch)}`,
           ),
-        state = await this.state(job.id);
-      if (ref && state.value?.sha !== ref.object.sha)
+        ),
+        jobState = await this.state(job.id),
+        head = await this.headState(job.project.id);
+      if (head.value && head.value.sha !== ref.object.sha)
         throw new Error(
           "GitHub sürümü başka bilgisayarda değişmiş. Üzerine yazılmadı; önce uzak sürümü alın.",
         );
+      if (!head.value) {
+        const existing = z
+          .object({ message: z.string() })
+          .safeParse(
+            await this.api(`${repo.route}/git/commits/${ref.object.sha}`),
+          );
+        if (existing.success && /^App Factory /.test(existing.data.message))
+          throw new Error(
+            "GitHub sürümü başka bilgisayarda değişmiş. Üzerine yazılmadı; önce uzak sürümü alın.",
+          );
+      }
       const entries = [];
       progress(20);
       for (const [name, data] of files) {
@@ -350,33 +391,24 @@ export class GithubSync {
         .parse(
           await this.api(`${repo.route}/git/trees`, "POST", { tree: entries }),
         );
-      const base =
-        ref ??
-        refSchema.parse(
-          await this.api(
-            `${repo.route}/git/ref/heads/${encodeURIComponent(repo.default_branch)}`,
-          ),
-        );
       const commit = z.object({ sha: shaSchema }).parse(
         await this.api(`${repo.route}/git/commits`, "POST", {
           message: `App Factory ${job.id} · ${job.status}`,
           tree: tree.sha,
-          parents: [base.object.sha],
+          parents: [ref.object.sha],
         }),
       );
       progress(90);
-      if (ref)
-        await this.api(`${repo.route}/git/refs/heads/${branch}`, "PATCH", {
+      await this.api(
+        `${repo.route}/git/refs/heads/${encodeURIComponent(branch)}`,
+        "PATCH",
+        {
           sha: commit.sha,
           force: false,
-        });
-      else
-        await this.api(`${repo.route}/git/refs`, "POST", {
-          ref: `refs/heads/${branch}`,
-          sha: commit.sha,
-        });
+        },
+      );
       await writeFile(
-        state.file,
+        jobState.file,
         JSON.stringify({
           sha: commit.sha,
           digest: hash,
@@ -384,6 +416,9 @@ export class GithubSync {
         }),
         { mode: 0o600 },
       );
+      await writeFile(head.file, JSON.stringify({ sha: commit.sha }), {
+        mode: 0o600,
+      });
       this.status.set(job.project.id, {
         error: null,
         url: repo.url,
@@ -562,7 +597,35 @@ export class GithubSync {
     const repo = await this.repo(id);
     progress(50);
     if (!repo) return { url: null, jobs: [] };
-    const jobs = [];
+    const jobs: { id: string; sha: string }[] = [];
+    const seen = new Set<string>();
+    const head = refSchema
+      .nullable()
+      .parse(
+        await this.api(
+          `${repo.route}/git/ref/heads/${encodeURIComponent(repo.default_branch)}`,
+          "GET",
+          undefined,
+          true,
+        ),
+      );
+    if (head) {
+      const commit = z
+        .object({ message: z.string() })
+        .safeParse(
+          await this.api(`${repo.route}/git/commits/${head.object.sha}`),
+        );
+      const match = commit.success
+        ? /^App Factory ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i.exec(
+            commit.data.message,
+          )
+        : null;
+      if (match) {
+        const jobId = match[1]!.toLowerCase();
+        jobs.push({ id: jobId, sha: head.object.sha });
+        seen.add(jobId);
+      }
+    }
     for (let page = 1; page <= 10; page++) {
       const branches = z
         .array(
@@ -571,9 +634,13 @@ export class GithubSync {
         .parse(
           await this.api(`${repo.route}/branches?per_page=100&page=${page}`),
         );
-      for (const b of branches)
-        if (/^factory-[a-f0-9-]{36}$/.test(b.name))
-          jobs.push({ id: b.name.slice(8), sha: b.commit.sha });
+      for (const b of branches) {
+        if (!/^factory-[a-f0-9-]{36}$/.test(b.name)) continue;
+        const jobId = b.name.slice(8);
+        if (seen.has(jobId)) continue;
+        jobs.push({ id: jobId, sha: b.commit.sha });
+        seen.add(jobId);
+      }
       if (branches.length < 100) return { url: repo.url, jobs };
     }
     throw new Error("GitHub sürüm sınırı aşıldı.");
@@ -591,10 +658,27 @@ export class GithubSync {
       shaSchema.parse(sha);
       const repo = await this.repo(project.id);
       if (!repo) throw new Error("GitHub deposu bulunamadı.");
-      const ref = refSchema.parse(
-        await this.api(`${repo.route}/git/ref/heads/factory-${id}`),
-      );
-      if (ref.object.sha !== sha)
+      const mainRef = refSchema
+        .nullable()
+        .parse(
+          await this.api(
+            `${repo.route}/git/ref/heads/${encodeURIComponent(repo.default_branch)}`,
+            "GET",
+            undefined,
+            true,
+          ),
+        );
+      const legacy = refSchema
+        .nullable()
+        .parse(
+          await this.api(
+            `${repo.route}/git/ref/heads/factory-${id}`,
+            "GET",
+            undefined,
+            true,
+          ),
+        );
+      if (mainRef?.object.sha !== sha && legacy?.object.sha !== sha)
         throw new Error("Uzak sürüm değişti. Listeyi yenileyin.");
       const tree = z
         .object({
@@ -649,7 +733,22 @@ export class GithubSync {
         throw new Error(
           "Görev veya proje sürümü uyuşmuyor. Önce ortak proje kaydını yenileyin.",
         );
-      files.set("src/runtime/connection.json", emptyConnection);
+      files.set(
+        "src/runtime/connection.json",
+        connectionBuffer(
+          (() => {
+            try {
+              return files.has("src/runtime/connection.json")
+                ? JSON.parse(
+                    files.get("src/runtime/connection.json")!.toString("utf8"),
+                  )
+                : {};
+            } catch {
+              return {};
+            }
+          })(),
+        ),
+      );
       const parent = path.join(
         this.root,
         "workspace/generated-projects",
@@ -717,6 +816,14 @@ export class GithubSync {
         }),
         { mode: 0o600 },
       );
+      if (mainRef) {
+        const head = await this.headState(project.id);
+        await writeFile(
+          head.file,
+          JSON.stringify({ sha: mainRef.object.sha }),
+          { mode: 0o600 },
+        );
+      }
       job.outputPath = path.relative(this.root, target);
       job.installed = false;
       progress(100);

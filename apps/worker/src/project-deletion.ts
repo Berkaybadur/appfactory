@@ -83,6 +83,8 @@ export class ProjectDeletion {
       `planner/${id}.json.tmp`,
       `eas/links/${id}.json`,
       `eas/links/${id}.json.tmp`,
+      `github/${id}-head.json`,
+      `github/${id}-head.json.tmp`,
     ]);
     const sources = new Set<string>();
     // Include old/archived source IDs, even if no longer in the managers' maps.

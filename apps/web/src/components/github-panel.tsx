@@ -111,9 +111,10 @@ export function GithubPanel({ project }: { project: Project }) {
           </div>
           <CardDescription>
             Tasarım görselleri PNG dosyaları olarak aynı private depoda
-            saklanır. Üretim tamamlandığında veya durduğunda kod ve görev kaydı
-            private depoya otomatik gönderilir. Başka bilgisayarda bir sürümü
-            alarak devam edebilirsiniz. Yerel değişikliklerin üzerine yazılmaz.
+            saklanır. Kod ve görev kaydı varsayılan dala (main) gönderilir; her
+            çıktı için yeni dal açılmaz. Üretim bitince veya durunca otomatik
+            yüklenir. Başka bilgisayarda bu sürümü alarak devam edebilirsiniz.
+            Yerel değişikliklerin üzerine yazılmaz.
           </CardDescription>
         </CardHeader>
       </summary>
@@ -179,8 +180,9 @@ export function GithubPanel({ project }: { project: Project }) {
             </div>
           ))}
           <p className="text-xs text-muted-foreground">
-            İndirme AI çağrısı yapmaz. Bağımlılıklar yeniden kurulur. Bağlantı
-            anahtarları ve cihaz onayları aktarılmaz.
+            İndirme AI çağrısı yapmaz. Bağımlılıklar yeniden kurulur. Supabase
+            publishable bağlantısı kodla birlikte gelir. Service role, .env ve
+            cihaz onayları aktarılmaz.
           </p>
         </div>
       </CardContent>

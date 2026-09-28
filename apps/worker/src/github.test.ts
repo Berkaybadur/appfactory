@@ -42,6 +42,7 @@ function mockGithub() {
     trees = new Map<string, unknown>(),
     commits = new Map<string, string>(),
     refs = new Map<string, string>([["main", "0".repeat(40)]]);
+  const commitMeta = new Map<string, { tree: string; message: string }>();
   let repo = false,
     counter = 0;
   const hash = () => (++counter).toString(16).padStart(40, "0");
@@ -102,10 +103,23 @@ function mockGithub() {
         tree: trees.get(commits.get(sha) ?? sha),
       });
     }
-    if (route.endsWith("/git/commits")) {
+    if (route.endsWith("/git/commits") && method === "POST") {
       const sha = hash();
       commits.set(sha, body.tree);
+      commitMeta.set(sha, {
+        tree: body.tree,
+        message: String(body.message ?? ""),
+      });
       return Response.json({ sha });
+    }
+    if (route.includes("/git/commits/")) {
+      const sha = route.split("/").at(-1)!;
+      const meta = commitMeta.get(sha);
+      return Response.json({
+        sha,
+        message: meta?.message ?? "Initial commit",
+        tree: { sha: meta?.tree ?? sha },
+      });
     }
     if (route.endsWith("/git/refs")) {
       refs.set(body.ref.replace("refs/heads/", ""), body.sha);
@@ -299,9 +313,13 @@ test("GitHub round trip across computers preserves tasks and costs, excludes sec
     await mkdir(path.join(cwd, "design-references"));
     const referencePng = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
     await writeFile(path.join(cwd, "design-references/home.png"), referencePng);
+    const connection = {
+      url: "https://project.supabase.co",
+      publishableKey: "sb_publishable_abcdefghijklmnop",
+    };
     await writeFile(
       path.join(cwd, "src/runtime/connection.json"),
-      '{"url":"private","publishableKey":"secret"}',
+      JSON.stringify(connection, null, 2) + "\n",
     );
     const job: BuilderJob = {
       id,
@@ -354,6 +372,13 @@ test("GitHub round trip across computers preserves tasks and costs, excludes sec
       [...uploadProgress].sort((a, b) => a - b),
     );
     assert.equal((await b.list("test")).jobs.length, 1);
+    assert.equal(
+      [...cloud.refs.keys()].filter((name) =>
+        /^factory-[a-f0-9-]{36}$/.test(name),
+      ).length,
+      0,
+    );
+    assert.notEqual(cloud.refs.get("main"), "0".repeat(40));
     const downloadProgress: number[] = [];
     const imported = await b.restore(job.project, id, published.sha, (value) =>
       downloadProgress.push(value),
@@ -375,14 +400,14 @@ test("GitHub round trip across computers preserves tasks and costs, excludes sec
       referencePng,
     );
     await assert.rejects(readFile(path.join(second, outputPath, ".env")));
-    assert.equal(
+    assert.deepEqual(
       JSON.parse(
         await readFile(
           path.join(second, outputPath, "src/runtime/connection.json"),
           "utf8",
         ),
-      ).url,
-      "",
+      ),
+      connection,
     );
     const commands: string[] = [];
     const manager = new BuilderManager(
@@ -417,6 +442,8 @@ test("GitHub round trip across computers preserves tasks and costs, excludes sec
     const text = [...cloud.blobs.values()].map((b) => b.toString()).join("\n");
     assert.ok(!text.includes("GITHUB_TOKEN=secret"));
     assert.ok(!text.includes("secret logs"));
+    assert.ok(text.includes("https://project.supabase.co"));
+    assert.ok(text.includes("sb_publishable_abcdefghijklmnop"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

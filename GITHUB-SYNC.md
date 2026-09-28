@@ -1,6 +1,6 @@
 # Üretilen uygulamaları GitHub ile paylaşma
 
-Her proje `GITHUB_OWNER/appfactory-<proje-id>` adında **private** bir depoya gönderilir. Her Builder çıktısı `factory-<iş-id>` dalında tutulur; sonraki gönderimler o dalın commit geçmişini ilerletir. App Factory kaynak deposuna üretilen uygulamalar eklenmez.
+Her proje `GITHUB_OWNER/appfactory-<proje-id>` adında **private** bir depoya gönderilir. Kod çıktıları deponun varsayılan dalına (`main`) yazılır; revizyonlar yeni dal açmaz, aynı `main` geçmişini ilerletir. App Factory kaynak deposuna üretilen uygulamalar eklenmez.
 
 Tasarım görselleri aynı deponun `factory-design-assets` dalındaki `design-images/<görsel-id>.png` dosyalarında tutulur. Yanındaki JSON dosyası görsel iş kaydını ve SHA-256 değerini içerir. Böylece henüz kod üretilmeden de tasarımlar paylaşılır. Onaylı ekran referansları ayrıca kod çıktısının `design-references/` klasörüyle gönderilir.
 
@@ -25,7 +25,7 @@ GITHUB_OWNER boşsa PAT'ın hesap adı kullanılır. Ekip üyeleri farklı hesap
 
 ## Kapsam ve sınırlar
 
-`.env`, gizli dosyalar, Git metaverisi, node_modules, Expo oturumları ve derleme çıktıları aktarılmaz. Tasarım görselleri Supabase'e base64 olarak yazılmaz; GitHub'da gerçek PNG dosyalarıdır. GitHub Git Blobs API'sinin aktarım kodlaması depodaki dosya biçimini değiştirmez. Uygulamanın `src/runtime/connection.json` dosyası boş yapılandırmayla aktarılır; gerçek bağlantılar yeni bilgisayarda yeniden tanımlanmalıdır. QR oturumları, önizleme onayları, tamamlanma listesi ve EAS cihaz onayı bilgisayara özeldir.
+`.env`, gizli dosyalar, Git metaverisi, node_modules, Expo oturumları ve derleme çıktıları aktarılmaz. Tasarım görselleri Supabase'e base64 olarak yazılmaz; GitHub'da gerçek PNG dosyalarıdır. GitHub Git Blobs API'sinin aktarım kodlaması depodaki dosya biçimini değiştirmez. Uygulamanın `src/runtime/connection.json` dosyasındaki HTTPS adres ve `sb_publishable_` anahtarı private depo ile paylaşılır; `sb_secret_` / service role gönderilmez. QR oturumları, önizleme onayları, tamamlanma listesi ve EAS cihaz onayı bilgisayara özeldir.
 
 Dosya limiti 5 MB, çıktı limiti 25 MB ve 500 dosyadır. Bilinen anahtar biçimleri bulunduğunda aktarım engellenir. Token yalnızca api.github.com isteklerinde kullanılır. Yeniden başlatma sırasında yarım kalmış aktarım otomatik tekrar edilmez; panelde manuel gönderim kullanılabilir. Gerçek cihaz testi ayrıca gereklidir.
 
