@@ -11,7 +11,9 @@ export function GithubPanel({ project }: { project: Project }) {
     url?: string;
     operation?: { id: string; progress: number; active: boolean } | null;
   }>({ enabled: false, busy: false });
-  const [versions, setVersions] = useState<{ id: string; sha: string }[]>([]);
+  const [versions, setVersions] = useState<
+    { id: string; sha: string; branch?: string }[]
+  >([]);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [active, setActive] = useState<{
@@ -167,7 +169,10 @@ export function GithubPanel({ project }: { project: Project }) {
               className="flex flex-wrap items-center justify-between gap-2 rounded border p-2"
             >
               <span className="text-xs">
-                Çıktı {version.id} · {version.sha.slice(0, 8)}
+                {version.branch
+                  ? `${version.branch} · güncel sürüm`
+                  : `Eski dal · ${version.id.slice(0, 8)}`}{" "}
+                · {version.sha.slice(0, 8)}
               </span>
               <Button
                 variant="default"
@@ -180,9 +185,10 @@ export function GithubPanel({ project }: { project: Project }) {
             </div>
           ))}
           <p className="text-xs text-muted-foreground">
-            İndirme AI çağrısı yapmaz. Bağımlılıklar yeniden kurulur. Supabase
-            publishable bağlantısı kodla birlikte gelir. Service role, .env ve
-            cihaz onayları aktarılmaz.
+            İndirme AI çağrısı yapmaz. Güncel kod main dalındadır; listede “main
+            · güncel sürüm” olarak görünür. Bağımlılıklar yeniden kurulur.
+            Supabase publishable bağlantısı kodla birlikte gelir. Service role,
+            .env ve cihaz onayları aktarılmaz.
           </p>
         </div>
       </CardContent>

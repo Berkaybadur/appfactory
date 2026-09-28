@@ -18,7 +18,7 @@ GITHUB_OWNER boşsa PAT'ın hesap adı kullanılır. Ekip üyeleri farklı hesap
 
 - Görsel üretimi tamamlanınca PNG ve görsel kaydı GitHub'a otomatik gönderilir. Tasarım sayfası açıldığında eski yerel görseller de gönderilir, eksik görseller GitHub'dan alınır. Builder başlatılmadan ve başka bilgisayardan kod alınmadan önce görseller eşitlenir. Bu işlem AI çağrısı yapmaz.
 - Kod ve görev kaydı GitHub'a otomatik gitmez. İnceledikten sonra Geliştirme/Testler/Derleme sayfasındaki **Yerel çıktıları GitHub'a gönder** düğmesini kullanın.
-- Diğer bilgisayarda ortak projeyi açın, **GitHub sürümlerini göster**, ardından **Bu bilgisayara al ve kontrol et** düğmesine basın. İndirme AI çağrısı veya EAS build başlatmaz.
+- Diğer bilgisayarda ortak projeyi açın, **GitHub sürümlerini göster**, listede **main · güncel sürüm** satırını seçin, ardından **Bu bilgisayara al ve kontrol et**. İndirme AI çağrısı veya EAS build başlatmaz. Bu App Factory sürümü her iki bilgisayarda da aynı olmalıdır; eski worker yalnızca `factory-…` dallarını listeler ve main’i göstermez.
 - Bağımlılıklar scripts kapalı kurulur. Tamamlanmış çıktılar yerel TypeScript/ESLint kontrollerinden geçmeden hazır sayılmaz. Başarısız çıktıların görev/deneme/maliyet kayıtları korunur; mevcut manuel model onayıyla devam edilir.
 - Yerel değişiklikler korunur. Uzak dal ilerlediyse gönderim reddedilir; force-push yapılmaz. Yerel çıktı son eşitlenen halinden değişmişse indirme üzerine yazmaz. Böyle bir eşzamanlı düzenlemede iki sürüm korunur; otomatik merge yoktur. Temiz çıktının güncellenmesinde eski klasör `-backup-...` adıyla yerelde kalır.
 

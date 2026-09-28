@@ -597,34 +597,12 @@ export class GithubSync {
     const repo = await this.repo(id);
     progress(50);
     if (!repo) return { url: null, jobs: [] };
-    const jobs: { id: string; sha: string }[] = [];
+    const jobs: { id: string; sha: string; branch?: string }[] = [];
     const seen = new Set<string>();
-    const head = refSchema
-      .nullable()
-      .parse(
-        await this.api(
-          `${repo.route}/git/ref/heads/${encodeURIComponent(repo.default_branch)}`,
-          "GET",
-          undefined,
-          true,
-        ),
-      );
-    if (head) {
-      const commit = z
-        .object({ message: z.string() })
-        .safeParse(
-          await this.api(`${repo.route}/git/commits/${head.object.sha}`),
-        );
-      const match = commit.success
-        ? /^App Factory ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i.exec(
-            commit.data.message,
-          )
-        : null;
-      if (match) {
-        const jobId = match[1]!.toLowerCase();
-        jobs.push({ id: jobId, sha: head.object.sha });
-        seen.add(jobId);
-      }
+    const main = await this.mainJob(repo);
+    if (main) {
+      jobs.push(main);
+      seen.add(main.id);
     }
     for (let page = 1; page <= 10; page++) {
       const branches = z
@@ -644,6 +622,72 @@ export class GithubSync {
       if (branches.length < 100) return { url: repo.url, jobs };
     }
     throw new Error("GitHub sürüm sınırı aşıldı.");
+  }
+  private async mainJob(repo: {
+    route: string;
+    default_branch: string;
+  }): Promise<{ id: string; sha: string; branch: string } | null> {
+    const branch = repo.default_branch;
+    const head = refSchema
+      .nullable()
+      .parse(
+        await this.api(
+          `${repo.route}/git/ref/heads/${encodeURIComponent(branch)}`,
+          "GET",
+          undefined,
+          true,
+        ),
+      );
+    if (!head) return null;
+    try {
+      const file = z
+        .object({ encoding: z.literal("base64"), content: z.string() })
+        .nullable()
+        .parse(
+          await this.api(
+            `${repo.route}/contents/${metadata}?ref=${encodeURIComponent(branch)}`,
+            "GET",
+            undefined,
+            true,
+          ),
+        );
+      if (file) {
+        const job = JSON.parse(
+          Buffer.from(file.content.replace(/\s/g, ""), "base64").toString(
+            "utf8",
+          ),
+        ) as { id?: unknown };
+        return {
+          id: z.uuid().parse(job.id).toLowerCase(),
+          sha: head.object.sha,
+          branch,
+        };
+      }
+    } catch {
+      // Commit message is enough when the contents API is unavailable.
+    }
+    try {
+      const raw = z
+        .object({
+          message: z.string().optional(),
+          commit: z.object({ message: z.string() }).optional(),
+        })
+        .parse(await this.api(`${repo.route}/git/commits/${head.object.sha}`));
+      const message = raw.message ?? raw.commit?.message ?? "";
+      const match =
+        /App Factory ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.exec(
+          message,
+        );
+      if (match)
+        return {
+          id: match[1]!.toLowerCase(),
+          sha: head.object.sha,
+          branch,
+        };
+    } catch {
+      return null;
+    }
+    return null;
   }
   async restore(
     project: Project,

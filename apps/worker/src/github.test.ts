@@ -130,6 +130,21 @@ function mockGithub() {
       refs.set(route.split("/heads/")[1]!, body.sha);
       return Response.json({ object: { sha: body.sha } });
     }
+    if (route.includes("/contents/")) {
+      const name = decodeURIComponent(route.split("/contents/")[1]!);
+      const sha = refs.get("main");
+      const tree = trees.get(commits.get(sha ?? "") ?? "");
+      const entry = Array.isArray(tree)
+        ? tree.find((item: { path: string }) => item.path === name)
+        : undefined;
+      if (!entry?.sha) return new Response(null, { status: 404 });
+      const data = blobs.get(entry.sha);
+      if (!data) return new Response(null, { status: 404 });
+      return Response.json({
+        content: data.toString("base64"),
+        encoding: "base64",
+      });
+    }
     throw new Error("Unexpected mock route " + route);
   };
   return { transport, blobs, refs };
@@ -372,6 +387,7 @@ test("GitHub round trip across computers preserves tasks and costs, excludes sec
       [...uploadProgress].sort((a, b) => a - b),
     );
     assert.equal((await b.list("test")).jobs.length, 1);
+    assert.equal((await b.list("test")).jobs[0]?.branch, "main");
     assert.equal(
       [...cloud.refs.keys()].filter((name) =>
         /^factory-[a-f0-9-]{36}$/.test(name),
