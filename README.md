@@ -1,6 +1,6 @@
 # App Factory V1
 
-Kişisel kullanım için düşük maliyetli mobil uygulama üretim paneli. Panel Türkçedir. Sprint 3’te düzenlenebilir plan/ekran/tasarım, sürüm takibi, Expo şablon üretimi ve kod kontrolleri bağlıdır; AI Planner isteğe bağlıdır; görsel referanslı Builder bağlıdır; APK derlemesi henüz kapalıdır.
+OpenAI bağlantılı Türkçe bir panel üzerinden mobil ve web uygulaması üretir.
 
 ## Çalıştırma
 
